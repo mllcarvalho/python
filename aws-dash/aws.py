@@ -1,5 +1,5 @@
 from flask import Flask
-from dash import dash_table, html, dcc
+from dash import dash_table, html, dcc, Input, Output, callback
 from flask_caching import Cache
 import boto3
 import pandas as pd
@@ -20,39 +20,46 @@ cache = Cache(app.server, config={
     'CACHE_DEFAULT_TIMEOUT': 86400  # 24 horas
 })
 
+@app.callback(
+    Output('cache-cleared', 'children'),
+    Input('clear-cache-button', 'n_clicks')
+)
 def clear_cache(n_clicks):
-    if n_clicks:
+    if n_clicks and n_clicks > 0:
         cache.clear()
         return "Cache cleared successfully!"
     return ""
 
 def fetch_ecs_data():
-    @cache.memoize(timeout=86400)  # Cache por um dia
-    def get_ecs_services():
-        data = []
-        cluster_paginator = ecs_client.get_paginator('list_clusters')
-        for cluster_page in cluster_paginator.paginate():
-            for cluster_arn in cluster_page['clusterArns']:
-                cluster_name = cluster_arn.split('/')[-1]
-                service_paginator = ecs_client.get_paginator('list_services')
-                for service_page in service_paginator.paginate(cluster=cluster_arn):
-                    described_services = ecs_client.describe_services(
-                        cluster=cluster_arn, services=service_page['serviceArns']
-                    )['services']
-                    for service in described_services:
-                        cpu_usage = get_cloudwatch_metric_average(cluster_name, service['serviceName'], 'CPUUtilization')
-                        memory_usage = get_cloudwatch_metric_average(cluster_name, service['serviceName'], 'MemoryUtilization')
-                        data.append({
-                            'Cluster Name': cluster_name,
-                            'Service Name': service['serviceName'],
-                            'Task Count': service['desiredCount'],
-                            'Capacity Provider': service.get('capacityProviderStrategy', [{'capacityProvider': 'N/A'}])[0]['capacityProvider'],
-                            'CPU Usage (%)': cpu_usage,
-                            'Memory Usage (%)': memory_usage
-                        })
-        return pd.DataFrame(data)
-    return get_ecs_services()
+    ecs_client = boto3.client('ecs')
+    cloudwatch_client = boto3.client('cloudwatch')
+    data = []
+    
+    cluster_paginator = ecs_client.get_paginator('list_clusters')
+    for cluster_page in cluster_paginator.paginate():
+        for cluster_arn in cluster_page['clusterArns']:
+            cluster_name = cluster_arn.split('/')[-1]
+            service_paginator = ecs_client.get_paginator('list_services')
+            for service_page in service_paginator.paginate(cluster=cluster_arn):
+                described_services = ecs_client.describe_services(
+                    cluster=cluster_arn, services=service_page['serviceArns']
+                )['services']
+                
+                for service in described_services:
+                    cpu_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'CPUUtilization')
+                    memory_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'MemoryUtilization')
+                    
+                    data.append({
+                        'Cluster Name': cluster_name,
+                        'Service Name': service['serviceName'],
+                        'Task Count': service['desiredCount'],
+                        'Capacity Provider': service.get('capacityProviderStrategy', [{'capacityProvider': 'N/A'}])[0]['capacityProvider'],
+                        'Average CPU Usage (%)': cpu_usage,
+                        'Average Memory Usage (%)': memory_usage
+                    })
+    return pd.DataFrame(data)
 
+@cache.memoize(timeout=86400)  # Cache a função por um dia
 def get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service_name, metric_name):
     now = datetime.datetime.utcnow()
     response = cloudwatch_client.get_metric_statistics(
@@ -62,7 +69,7 @@ def get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service_name,
             {'Name': 'ClusterName', 'Value': cluster_name},
             {'Name': 'ServiceName', 'Value': service_name}
         ],
-        StartTime=now - datetime.timedelta(minutes=10),
+        StartTime=now - datetime.timedelta(minutes==10),
         EndTime=now,
         Period=300,  # Daily statistics
         Statistics=['Average']
@@ -103,6 +110,7 @@ def fetch_rds_data():
         })
     return pd.DataFrame(data)
 
+@cache.memoize(timeout=86400)  # Cache a função por um dia
 def get_cpu_usage(db_instance_identifier):
     now = datetime.datetime.utcnow()
     stats = cloudwatch_client.get_metric_statistics(
@@ -119,7 +127,7 @@ def get_cpu_usage(db_instance_identifier):
 app.layout = html.Div([
     html.H1('AWS Services Dashboard'),
     html.Button('Clear Cache', id='clear-cache-button'),
-    html.Div(id='cache-status'),
+    html.Div(id='cache-status', style={'margin-bottom': '10px', display: 'block'}),
     dcc.Tabs(id="tabs", children=[
         dcc.Tab(label='ECS Services', children=[
             dash_table.DataTable(
