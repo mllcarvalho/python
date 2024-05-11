@@ -1,5 +1,5 @@
 from flask import Flask
-from dash import dash_table, html, dcc, Input, Output, callback
+from dash import dash_table, html, dcc, Input, Output, callback, dash   
 from flask_caching import Cache
 import boto3
 import pandas as pd
@@ -69,7 +69,7 @@ def get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service_name,
             {'Name': 'ClusterName', 'Value': cluster_name},
             {'Name': 'ServiceName', 'Value': service_name}
         ],
-        StartTime=now - datetime.timedelta(minutes==10),
+        StartTime=now - datetime.timedelta(minutes=10),
         EndTime=now,
         Period=300,  # Daily statistics
         Statistics=['Average']
@@ -127,7 +127,7 @@ def get_cpu_usage(db_instance_identifier):
 app.layout = html.Div([
     html.H1('AWS Services Dashboard'),
     html.Button('Clear Cache', id='clear-cache-button'),
-    html.Div(id='cache-status', style={'margin-bottom': '10px', display: 'block'}),
+    html.Div(id='cache-status', style={'margin-bottom': '10px', 'display': 'block'}),
     dcc.Tabs(id="tabs", children=[
         dcc.Tab(label='ECS Services', children=[
             dash_table.DataTable(
