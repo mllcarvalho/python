@@ -1,5 +1,5 @@
 from flask import Flask
-from dash import dash_table, html, dcc, Input, Output, callback, dash   
+from dash import dash_table, html, dcc, Input, Output, callback, dash, ctx
 from flask_caching import Cache
 import boto3
 import pandas as pd
@@ -134,6 +134,8 @@ app.layout = html.Div([
                 id='ecs-table',
                 columns=[{'name': i, 'id': i} for i in fetch_ecs_data().columns],
                 data=fetch_ecs_data().to_dict('records'),
+                filter_action='native',  # Permite filtragem
+                sort_action='native',  # Permite ordenação
                 style_cell={'textAlign': 'left', 'padding': '5px'},
                 style_data_conditional=[
                     {'if': {'column_id': 'Capacity Provider', 'filter_query': '{Capacity Provider} eq "FARGATE" || {Capacity Provider} eq "N/A"'},
@@ -146,6 +148,8 @@ app.layout = html.Div([
                 id='dynamodb-table',
                 columns=[{'name': i, 'id': i} for i in fetch_dynamodb_data().columns],
                 data=fetch_dynamodb_data().to_dict('records'),
+                filter_action='native',
+                sort_action='native',
                 style_cell={'textAlign': 'left', 'padding': '5px'}
             )
         ]),
@@ -154,6 +158,8 @@ app.layout = html.Div([
                 id='rds-table',
                 columns=[{'name': i, 'id': i} for i in fetch_rds_data().columns],
                 data=fetch_rds_data().to_dict('records'),
+                filter_action='native',
+                sort_action='native',
                 style_cell={'textAlign': 'left', 'padding': '5px'},
                 style_data_conditional=[
                     {'if': {'column_id': 'Size', 'filter_query': '{Size} contains "xlarge"'},
