@@ -21,7 +21,7 @@ cache = Cache(app.server, config={
 })
 
 @app.callback(
-    Output('cache-cleared', 'children'),
+    Output('cache-status', 'children'),
     Input('clear-cache-button', 'n_clicks')
 )
 def clear_cache(n_clicks):
@@ -127,7 +127,7 @@ def get_cpu_usage(db_instance_identifier):
 app.layout = html.Div([
     html.H1('AWS Services Dashboard'),
     html.Button('Clear Cache', id='clear-cache-button'),
-    html.Div(id='cache-status', style={'margin-bottom': '10px', 'display': 'block'}),
+    html.Div(id='cache-status', style={'margin-bottom': '10px', 'display': 'block', 'color': 'green', 'font-weight': 'bold', 'font-size': '16px', 'margin-top': '10px'}),
     dcc.Tabs(id="tabs", children=[
         dcc.Tab(label='ECS Services', children=[
             dash_table.DataTable(
