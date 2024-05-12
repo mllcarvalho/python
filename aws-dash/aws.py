@@ -30,11 +30,9 @@ def clear_cache(n_clicks):
         return "Cache cleared successfully!"
     return ""
 
+@cache.memoize(timeout=86400)  # Cache a função por um dia
 def fetch_ecs_data():
-    ecs_client = boto3.client('ecs')
-    cloudwatch_client = boto3.client('cloudwatch')
     data = []
-    
     cluster_paginator = ecs_client.get_paginator('list_clusters')
     for cluster_page in cluster_paginator.paginate():
         for cluster_arn in cluster_page['clusterArns']:
@@ -46,16 +44,24 @@ def fetch_ecs_data():
                 )['services']
                 
                 for service in described_services:
-                    cpu_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'CPUUtilization')
-                    memory_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'MemoryUtilization')
+                    task_def_arn = service['taskDefinition']
+                    task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)
+                    container_def = task_def['taskDefinition']['containerDefinitions'][0]
+                    cpu = container_def.get('cpu', 'N/A')
+                    memory = container_def.get('memory', 'N/A')
+                    
+                    cpu_usage = get_cloudwatch_metric_average(cluster_name, service['serviceName'], 'CPUUtilization')
+                    memory_usage = get_cloudwatch_metric_average(cluster_name, service['serviceName'], 'MemoryUtilization')
                     
                     data.append({
                         'Cluster Name': cluster_name,
                         'Service Name': service['serviceName'],
                         'Task Count': service['desiredCount'],
                         'Capacity Provider': service.get('capacityProviderStrategy', [{'capacityProvider': 'N/A'}])[0]['capacityProvider'],
+                        'vCPU': cpu,
+                        'Memory (MB)': memory
                         'Average CPU Usage (%)': cpu_usage,
-                        'Average Memory Usage (%)': memory_usage
+                        'Average Memory Usage (%)': memory_usage,    
                     })
     return pd.DataFrame(data)
 
@@ -139,7 +145,11 @@ app.layout = html.Div([
                 style_cell={'textAlign': 'left', 'padding': '5px'},
                 style_data_conditional=[
                     {'if': {'column_id': 'Capacity Provider', 'filter_query': '{Capacity Provider} eq "FARGATE" || {Capacity Provider} eq "N/A"'},
-                     'backgroundColor': '#FFCCCC'}
+                     'backgroundColor': '#FFCCCC'},
+                    {'if': {'column_id': 'vCPU', 'filter_query': '{vCPU} > 0.5'},
+                    'backgroundColor': '#FFCCCC'},
+                    {'if': {'column_id': 'Memory (MB)', 'filter_query': '{Memory (MB)} > 1'},
+                    'backgroundColor': '#FFCCCC'}
                 ]
             )
         ]),
