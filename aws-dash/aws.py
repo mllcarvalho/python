@@ -46,9 +46,9 @@ def fetch_ecs_data():
                 for service in described_services:
                     task_def_arn = service['taskDefinition']
                     task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)
-                    container_def = task_def['taskDefinition']['containerDefinitions'][0]
-                    cpu = container_def.get('cpu', 'N/A')
-                    memory = container_def.get('memory', 'N/A')
+                    task_cpu = task_def['taskDefinition'].get('cpu', 'N/A')  
+                    task_memory = task_def['taskDefinition'].get('memory', 'N/A') 
+                    
                     
                     cpu_usage = get_cloudwatch_metric_average(cluster_name, service['serviceName'], 'CPUUtilization')
                     memory_usage = get_cloudwatch_metric_average(cluster_name, service['serviceName'], 'MemoryUtilization')
@@ -58,15 +58,15 @@ def fetch_ecs_data():
                         'Service Name': service['serviceName'],
                         'Task Count': service['desiredCount'],
                         'Capacity Provider': service.get('capacityProviderStrategy', [{'capacityProvider': 'N/A'}])[0]['capacityProvider'],
-                        'vCPU': cpu,
-                        'Memory (MB)': memory
-                        'Average CPU Usage (%)': cpu_usage,
-                        'Average Memory Usage (%)': memory_usage,    
+                        'vCPU': task_cpu,
+                        'Memory': task_memory,
+                        'Avg CPU Usage (%)': cpu_usage,
+                        'Avg Memory Usage (%)': memory_usage,    
                     })
     return pd.DataFrame(data)
 
 @cache.memoize(timeout=86400)  # Cache a função por um dia
-def get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service_name, metric_name):
+def get_cloudwatch_metric_average(cluster_name, service_name, metric_name):
     now = datetime.datetime.utcnow()
     response = cloudwatch_client.get_metric_statistics(
         Namespace='AWS/ECS',
@@ -146,9 +146,9 @@ app.layout = html.Div([
                 style_data_conditional=[
                     {'if': {'column_id': 'Capacity Provider', 'filter_query': '{Capacity Provider} eq "FARGATE" || {Capacity Provider} eq "N/A"'},
                      'backgroundColor': '#FFCCCC'},
-                    {'if': {'column_id': 'vCPU', 'filter_query': '{vCPU} > 0.5'},
+                    {'if': {'column_id': 'vCPU', 'filter_query': '{vCPU} > 512'},
                     'backgroundColor': '#FFCCCC'},
-                    {'if': {'column_id': 'Memory (MB)', 'filter_query': '{Memory (MB)} > 1'},
+                    {'if': {'column_id': 'Memory', 'filter_query': '{Memory} > 1024'},
                     'backgroundColor': '#FFCCCC'}
                 ]
             )
