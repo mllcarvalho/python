@@ -6,6 +6,7 @@ import pandas as pd
 import datetime
 
 # Setup do cliente AWS e do servidor Flask
+elbv2_client = boto3.client('elbv2')
 ecs_client = boto3.client('ecs')
 dynamodb_client = boto3.client('dynamodb')
 rds_client = boto3.client('rds')
@@ -133,6 +134,26 @@ def get_cpu_usage(db_instance_identifier):
     )
     return stats['Datapoints'][-1]['Average'] if stats['Datapoints'] else "No data"
 
+def fetch_load_balancers():
+    data = []
+    response = elbv2_client.describe_load_balancers()
+    load_balancers = response['LoadBalancers']
+    
+    for lb in load_balancers:
+        listeners_response = elbv2_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])
+        listener_count = len(listeners_response['Listeners'])
+        
+        data.append({
+            'Load Balancer Name': lb['LoadBalancerName'],
+            'Load Balancer ARN': lb['LoadBalancerArn'],
+            'Type': lb['Type'],
+            'Listeners': listener_count
+        })
+    df = pd.DataFrame(data)
+    # Ordenando o DataFrame
+    df_sorted = df.sort_values(by=['Load Balancer Name'], ascending=[True])
+    return df_sorted
+
 app.layout = html.Div([
     html.H1('AWS Services Dashboard'),
     html.Button('Clear Cache', id='clear-cache-button'),
@@ -148,11 +169,7 @@ app.layout = html.Div([
                 style_cell={'textAlign': 'left', 'padding': '5px'},
                 style_data_conditional=[
                     {'if': {'column_id': 'Capacity Provider', 'filter_query': '{Capacity Provider} eq "FARGATE" || {Capacity Provider} eq "N/A"'},
-                     'backgroundColor': '#FFCCCC'},
-                    {'if': {'column_id': 'vCPU', 'filter_query': '{vCPU} > 512'},
-                    'backgroundColor': '#FFCCCC'},
-                    {'if': {'column_id': 'Memory', 'filter_query': '{Memory} > 1024'},
-                    'backgroundColor': '#FFCCCC'}
+                     'backgroundColor': '#FFCCCC'}
                 ]
             )
         ]),
@@ -179,6 +196,20 @@ app.layout = html.Div([
                      'backgroundColor': '#FFCCCC'},
                     {'if': {'column_id': 'Multi AZ', 'filter_query': '{Multi AZ} eq "True"'},
                      'backgroundColor': '#FFCCCC'}
+                ]
+            )
+        ]),
+        dcc.Tab(label='ELBs', children=[
+            dash_table.DataTable(
+                id='load-balancers-table',
+                columns=[{'name': i, 'id': i} for i in fetch_load_balancers().columns],
+                data=fetch_load_balancers().to_dict('records'),
+                filter_action='native',
+                sort_action='native',
+                style_cell={'textAlign': 'left', 'padding': '5px'},
+                style_data_conditional=[
+                    {'if': {'column_id': 'Listeners', 'filter_query': '{Listeners} eq 0'},
+                    'backgroundColor': '#FFCCCC'}
                 ]
             )
         ]),
