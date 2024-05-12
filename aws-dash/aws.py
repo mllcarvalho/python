@@ -107,6 +107,8 @@ def fetch_rds_data():
     data = []
     for instance in db_instances:
         db_identifier = instance['DBInstanceIdentifier']
+        read_replica_count = len(instance.get('ReadReplicaDBInstanceIdentifiers', []))
+        has_read_replica = "True" if read_replica_count > 0 else "False"
         cpu_usage = get_cpu_usage(db_identifier)
         size = instance['DBInstanceClass']
         multi_az = instance['MultiAZ']
@@ -114,6 +116,7 @@ def fetch_rds_data():
             'DB Identifier': db_identifier,
             'Status': instance['DBInstanceStatus'],
             'Engine': instance['Engine'],
+            'Read Replica': has_read_replica,
             'Size': size,
             'CPU Usage': f"{cpu_usage}%",
             'Multi AZ': 'True' if multi_az else 'False'
@@ -195,6 +198,8 @@ app.layout = html.Div([
                     {'if': {'column_id': 'Size', 'filter_query': '{Size} contains "xlarge"'},
                      'backgroundColor': '#FFCCCC'},
                     {'if': {'column_id': 'Multi AZ', 'filter_query': '{Multi AZ} eq "True"'},
+                     'backgroundColor': '#FFCCCC'},
+                    {'if': {'column_id': 'Has Read Replica', 'filter_query': '{Has Read Replica} eq "True"'},
                      'backgroundColor': '#FFCCCC'}
                 ]
             )
