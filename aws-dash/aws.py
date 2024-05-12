@@ -63,7 +63,10 @@ def fetch_ecs_data():
                         'Avg CPU Usage (%)': cpu_usage,
                         'Avg Memory Usage (%)': memory_usage,    
                     })
-    return pd.DataFrame(data)
+    df = pd.DataFrame(data)
+    # Ordenando o DataFrame
+    df_sorted = df.sort_values(by=['Cluster Name', 'Service Name'], ascending=[True, True])
+    return df_sorted
 
 @cache.memoize(timeout=86400)  # Cache a função por um dia
 def get_cloudwatch_metric_average(cluster_name, service_name, metric_name):
