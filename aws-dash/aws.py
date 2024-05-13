@@ -50,15 +50,17 @@ app.layout = html.Div([
         dcc.Tab(label='ECS Services', children=[html.Div(id='ecs-dashboard')]),
         dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')]),
         dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')]),
-        dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')])
+        dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')]),
+        dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')]),
     ])
 ])
 
 @app.callback(
     [Output('ecs-dashboard', 'children'),
      Output('dynamodb-dashboard', 'children'),
-     Output('rds-dashboard', 'children')],
+     Output('rds-dashboard', 'children'),
      Output('load-balancer-dashboard', 'children'),
+     Output('api-gateway-dashboard', 'children'),],
     Input('refresh-button', 'n_clicks'),
     [State('aws-access-key', 'value'), State('aws-secret-key', 'value'), State('aws-session-token', 'value')]
 )
@@ -70,11 +72,14 @@ def update_dashboards(n_clicks, access_key, secret_key, session_token):
         rds_client = session.client('rds')
         elbv2_client = session.client('elbv2')
         cloudwatch_client = session.client('cloudwatch')
+        apigateway_client = session.client('apigateway')
+        s3_client = session.client('s3')
 
         ecs_data = fetch_ecs_data(ecs_client, cloudwatch_client)
         dynamodb_data = fetch_dynamodb_data(dynamodb_client)
         rds_data = fetch_rds_data(rds_client, cloudwatch_client)
         elbv2_data = fetch_load_balancers(elbv2_client)
+        api_data = fetch_api_gateway_data(apigateway_client)
 
         ecs_table = dash_table.DataTable(
             id='ecs-table',
@@ -128,8 +133,17 @@ def update_dashboards(n_clicks, access_key, secret_key, session_token):
             ]
         )
 
-        return ecs_table, dynamodb_table, rds_table, load_balancer_table
-    return html.Div(), html.Div(), html.Div(), html.Div()  # Return empty divs if not refreshed yet
+        api_gateway_table = dash_table.DataTable(
+            id='api-table',
+            columns=[{'name': i, 'id': i} for i in api_data.columns],
+            data=api_data.to_dict('records'),
+            filter_action='native',
+            sort_action='native',
+            style_cell={'textAlign': 'left', 'padding': '5px'}
+        )
+
+        return ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table
+    return html.Div(), html.Div(), html.Div(), html.Div(), html.Div() # Return empty divs if not refreshed yet
 
 def fetch_ecs_data(ecs_client, cloudwatch_client):
     data = []
@@ -253,6 +267,34 @@ def fetch_load_balancers(elbv2_client):
     df = pd.DataFrame(data)
     # Ordenando o DataFrame
     df_sorted = df.sort_values(by=['Load Balancer Name'], ascending=[True])
+    return df_sorted
+
+# Definindo a função para recuperar dados dos API Gateways
+def fetch_api_gateway_data(apigateway_client):
+    # Recuperar todos os gateways
+    response = apigateway_client.get_rest_apis()
+    items = response['items']
+    
+    data = []
+    for item in items:
+        # Detalhes do log e X-Ray
+        try:
+            stage_response = apigateway_client.get_stages(restApiId=item['id'])
+            for stage in stage_response['item']:
+                logs = stage.get('methodSettings', {}).get('*', {}).get('loggingLevel', 'OFF')
+                xray = stage.get('methodSettings', {}).get('*', {}).get('dataTraceEnabled', False)
+                data.append({
+                    'API Name': item['name'],
+                    'API ID': item['id'],
+                    'Stage Name': stage['stageName'],
+                    'Logging Level': logs,
+                    'X-Ray Enabled': xray
+                })
+        except Exception as e:
+            print(f"Error fetching stages for API {item['name']}: {str(e)}")
+    
+    df = pd.DataFrame(data)
+    df_sorted = df.sort_values(by=['API Name'], ascending=[True])
     return df_sorted
 
 if __name__ == '__main__':
