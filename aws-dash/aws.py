@@ -17,11 +17,11 @@ cache = Cache(app.server, config={
 })
 
 # Função para criar clientes AWS com novas credenciais
-def create_aws_session(access_key, secret_key, session_token):
+def create_aws_session(credentials):
     return boto3.Session(
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        aws_session_token=session_token
+        aws_access_key_id=credentials['aws_access_key_id'],
+        aws_secret_access_key=credentials['aws_secret_access_key'],
+        aws_session_token=credentials['aws_session_token']
     )
 
 @app.callback(
@@ -37,23 +37,22 @@ def clear_cache(n_clicks):
 # Layout principal
 app.layout = html.Div([
     html.Div([
-        html.H1('AWS Services Dashboard'),
+        html.H1('AWS Services Dashboard', style={'display': 'inline-block'}),
+        dcc.Input(id='account-id-display', style={'margin-left': '20px', 'border': 'none', 'color': 'blue'}),
         html.Button('Clear Cache', id='clear-cache-button'),
         html.Div(id='cache-status', style={'margin-bottom': '10px', 'display': 'block', 'color': 'green', 'font-weight': 'bold', 'font-size': '16px', 'margin-top': '10px'}),
     ], style={'textAlign': 'center'}),
     html.Div([
-        dcc.Input(id='aws-access-key', type='text', placeholder='AWS Access Key', style={'marginRight': '5px'}),
-        dcc.Input(id='aws-secret-key', type='password', placeholder='AWS Secret Key', style={'marginRight': '5px'}),
-        dcc.Input(id='aws-session-token', type='password', placeholder='AWS Session Token', style={'marginRight': '5px'}),
-        html.Button('Refresh', id='refresh-button', n_clicks=0)
+        dcc.Textarea(id='aws-creds-input', style={'width': '350px', 'height': '100px'}, placeholder="Enter AWS credentials in format:\naws_access_key_id=XXX\naws_secret_access_key=XXX\naws_session_token=XXX"),
+        html.Button('Refresh', id='refresh-button', n_clicks=0),
+        dcc.Loading(id="loading-indicator", children=[html.Div(id="loading-output")], type="default")
     ], style={'position': 'absolute', 'top': '10px', 'right': '10px', 'zIndex': '1000'}),
     dcc.Tabs(id="tabs", children=[
         dcc.Tab(label='ECS Services', children=[html.Div(id='ecs-dashboard')]),
         dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')]),
         dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')]),
         dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')]),
-        dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')]),
-        dcc.Tab(label='S3 Buckets', children=[html.Div(id='s3-buckets-dashboard')]),
+        dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')])
     ])
 ])
 
@@ -63,27 +62,34 @@ app.layout = html.Div([
      Output('rds-dashboard', 'children'),
      Output('load-balancer-dashboard', 'children'),
      Output('api-gateway-dashboard', 'children'),
-     Output('s3-buckets-dashboard', 'children')],
+     Output('account-id-display', 'value')],
     Input('refresh-button', 'n_clicks'),
-    [State('aws-access-key', 'value'), State('aws-secret-key', 'value'), State('aws-session-token', 'value')]
+    State('aws-creds-input', 'value')
 )
-def update_dashboards(n_clicks, access_key, secret_key, session_token):
-    if n_clicks > 0:
-        session = create_aws_session(access_key, secret_key, session_token)
+def update_dashboards(n_clicks, creds_input):
+    if n_clicks > 0 and creds_input:
+        # Processa as credenciais a partir da entrada do usuário
+        credentials = {}
+        for line in creds_input.split('\n'):
+            key, value = line.split('=')
+            credentials[key.strip()] = value.strip()
+
+        session = create_aws_session(credentials)
+        sts_client = session.client('sts')
+        account_id = sts_client.get_caller_identity().get('Account')
+
         ecs_client = session.client('ecs')
         dynamodb_client = session.client('dynamodb')
         rds_client = session.client('rds')
         elbv2_client = session.client('elbv2')
         cloudwatch_client = session.client('cloudwatch')
         apigateway_client = session.client('apigateway')
-        s3_client = session.client('s3')
 
         ecs_data = fetch_ecs_data(ecs_client, cloudwatch_client)
         dynamodb_data = fetch_dynamodb_data(dynamodb_client)
         rds_data = fetch_rds_data(rds_client, cloudwatch_client)
         elbv2_data = fetch_load_balancers(elbv2_client)
         api_data = fetch_api_gateway_data(apigateway_client)
-        s3_data = fetch_s3_buckets_data(s3_client)
 
         ecs_table = dash_table.DataTable(
             id='ecs-table',
@@ -152,21 +158,9 @@ def update_dashboards(n_clicks, access_key, secret_key, session_token):
             ]
         )
 
-        s3_table = dash_table.DataTable(
-            id='s3-table',
-            columns=[{'name': i, 'id': i} for i in s3_data.columns],
-            data=s3_data.to_dict('records'),
-            filter_action='native',
-            sort_action='native',
-            style_cell={'textAlign': 'left', 'padding': '5px'},
-            style_data_conditional=[
-                {'if': {'column_id': 'Storage Type', 'filter_query': '{Storage Type} eq "STANDARD"'},
-                'backgroundColor': '#FFCCCC'}
-            ]
-        )
-
-        return ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, s3_table
-    return html.Div(), html.Div(), html.Div(), html.Div(), html.Div(), html.Div() # Return empty divs if not refreshed yet
+        return [html.Div(f"Example table for {key}") for key in ['ECS', 'DynamoDB', 'RDS', 'Load Balancers', 'API Gateway']] + [account_id]
+    # Se não clicar ou não tiver credenciais, retorna divs vazias e sem ID da conta
+    return [html.Div()]*5 + [""]
 
 def fetch_ecs_data(ecs_client, cloudwatch_client):
     data = []
@@ -329,50 +323,6 @@ def fetch_api_gateway_data(apigateway_client):
     # Ordenando o DataFrame
     df_sorted = df.sort_values(by=['API Name'], ascending=[True])
     return df_sorted
-
-def fetch_s3_buckets_data(s3_client):
-    all_buckets_details = []
-
-    # Lista todos os buckets na conta AWS
-    buckets_response = s3_client.list_buckets()
-    
-    for bucket in buckets_response['Buckets']:
-        bucket_name = bucket['Name']
-        storage_classes = []
-
-        # Lista os objetos no bucket e coleta suas classes de armazenamento
-        paginator = s3_client.get_paginator('list_objects_v2')
-        page_iterator = paginator.paginate(Bucket=bucket_name)
-
-        try:
-            for page in page_iterator:
-                if 'Contents' in page:
-                    for obj in page['Contents']:
-                        storage_classes.append(obj.get('StorageClass', 'STANDARD'))  # Assume STANDARD se não especificado
-
-                # Limitar a análise para os primeiros 1000 objetos para controle de custo e desempenho
-                if len(storage_classes) >= 100:
-                    break
-
-            # Conta as ocorrências de cada classe de armazenamento
-            storage_count = Counter(storage_classes)
-            # Encontra a classe de armazenamento mais comum
-            predominant_storage_class = storage_count.most_common(1)[0][0] if storage_count else 'No data'
-
-            # Adicionar os detalhes ao resultado
-            all_buckets_details.append({
-                'Bucket Name': bucket_name,
-                'Predominant Storage Class': predominant_storage_class
-            })
-
-        except Exception as e:
-            print(f"Error retrieving objects for bucket {bucket_name}: {str(e)}")
-            all_buckets_details.append({
-                'Bucket Name': bucket_name,
-                'Predominant Storage Class': 'Error'
-            })
-
-    return pd.DataFrame(all_buckets_details)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
