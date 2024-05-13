@@ -241,39 +241,47 @@ def get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service_name,
 def fetch_dynamodb_data(dynamodb_client):
     table_data = []
     paginator = dynamodb_client.get_paginator('list_tables')
-    for page in paginator.paginate():
-        for table_name in page['TableNames']:
-            table_info = dynamodb_client.describe_table(TableName=table_name)['Table']
-            billing_mode = table_info.get('BillingModeSummary', {}).get('BillingMode', 'PROVISIONED')
-            table_data.append({
-                'Table Name': table_name,
-                'Status': table_info['TableStatus'],
-                'Billing Mode': billing_mode,
-                'Read Capacity Units': table_info['ProvisionedThroughput']['ReadCapacityUnits'],
-                'Write Capacity Units': table_info['ProvisionedThroughput']['WriteCapacityUnits'], 
-            })
-    return pd.DataFrame(table_data)
+
+    def describe_table(table_name):
+        table_info = dynamodb_client.describe_table(TableName=table_name)['Table']
+        return {
+            'Table Name': table_name,
+            'Status': table_info['TableStatus'],
+            'Billing Mode': table_info.get('BillingModeSummary', {}).get('BillingMode', 'PROVISIONED'),
+            'Read Capacity Units': table_info['ProvisionedThroughput']['ReadCapacityUnits'],
+            'Write Capacity Units': table_info['ProvisionedThroughput']['WriteCapacityUnits']
+        }
+
+    # Recuperar todos os nomes de tabela primeiro
+    table_names = [name for page in paginator.paginate() for name in page['TableNames']]
+    
+    # Usar ThreadPool para descrever cada tabela
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        table_descriptions = list(executor.map(describe_table, table_names))
+
+    return pd.DataFrame(table_descriptions)
+
 
 def fetch_rds_data(rds_client, cloudwatch_client):
-    db_instances = rds_client.describe_db_instances()['DBInstances']
-    data = []
-    for instance in db_instances:
+    def describe_instance(instance):
         db_identifier = instance['DBInstanceIdentifier']
-        read_replica_count = len(instance.get('ReadReplicaDBInstanceIdentifiers', []))
-        has_read_replica = "True" if read_replica_count > 0 else "False"
         cpu_usage = get_cpu_usage(cloudwatch_client, db_identifier)
-        size = instance['DBInstanceClass']
-        multi_az = instance['MultiAZ']
-        data.append({
+        return {
             'DB Identifier': db_identifier,
             'Status': instance['DBInstanceStatus'],
             'Engine': instance['Engine'],
-            'Read Replica': has_read_replica,
-            'Size': size,
+            'Read Replica': "True" if len(instance.get('ReadReplicaDBInstanceIdentifiers', [])) > 0 else "False",
+            'Size': instance['DBInstanceClass'],
             'CPU Usage': f"{cpu_usage}%",
-            'Multi AZ': 'True' if multi_az else 'False'
-        })
-    return pd.DataFrame(data)
+            'Multi AZ': 'True' if instance['MultiAZ'] else 'False'
+        }
+
+    instances = rds_client.describe_db_instances()['DBInstances']
+    
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        instance_data = list(executor.map(describe_instance, instances))
+
+    return pd.DataFrame(instance_data)
 
 @cache.memoize(timeout=86400)  # Cache a função por um dia
 def get_cpu_usage(cloudwatch_client, db_instance_identifier):
@@ -290,57 +298,48 @@ def get_cpu_usage(cloudwatch_client, db_instance_identifier):
     return stats['Datapoints'][-1]['Average'] if stats['Datapoints'] else "No data"
 
 def fetch_load_balancers(elbv2_client):
-    data = []
-    response = elbv2_client.describe_load_balancers()
-    load_balancers = response['LoadBalancers']
-    
-    for lb in load_balancers:
+    def describe_load_balancer(lb):
         listeners_response = elbv2_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])
         listener_count = len(listeners_response['Listeners'])
-        
-        data.append({
+        return {
             'Load Balancer Name': lb['LoadBalancerName'],
             'Load Balancer ARN': lb['LoadBalancerArn'],
             'Type': lb['Type'],
             'Listeners': listener_count
-        })
-    df = pd.DataFrame(data)
-    # Ordenando o DataFrame
-    df_sorted = df.sort_values(by=['Load Balancer Name'], ascending=[True])
-    return df_sorted
+        }
+
+    load_balancers = elbv2_client.describe_load_balancers()['LoadBalancers']
+    
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        lb_data = list(executor.map(describe_load_balancer, load_balancers))
+
+    return pd.DataFrame(lb_data)
 
 # Definindo a função para recuperar dados dos API Gateways
 def fetch_api_gateway_data(apigateway_client):
-    # Lista para armazenar todos os dados dos API Gateways
-    data = []
-    
-    # Inicializa a paginação
-    paginator = apigateway_client.get_paginator('get_rest_apis')
-    page_iterator = paginator.paginate()
+    def get_api_details(api):
+        try:
+            stage_response = apigateway_client.get_stages(restApiId=api['id'])
+            return [{
+                'API Name': api['name'],
+                'API ID': api['id'],
+                'Stage Name': stage['stageName'],
+                'Logging Level': stage.get('methodSettings', {}).get('*', {}).get('loggingLevel', 'OFF'),
+                'X-Ray Enabled': stage.get('methodSettings', {}).get('*', {}).get('dataTraceEnabled', False)
+            } for stage in stage_response['item']]
+        except Exception as e:
+            print(f"Error fetching stages for API {api['name']}: {str(e)}")
+            return []
 
-    # Loop através de cada página de API Gateways
-    for page in page_iterator:
-        for item in page['items']:
-            # Tentar recuperar as configurações de estágio para cada API Gateway
-            try:
-                stage_response = apigateway_client.get_stages(restApiId=item['id'])
-                for stage in stage_response['item']:
-                    logs = stage.get('methodSettings', {}).get('*', {}).get('loggingLevel', 'OFF')
-                    xray = stage.get('methodSettings', {}).get('*', {}).get('dataTraceEnabled', False)
-                    data.append({
-                        'API Name': item['name'],
-                        'API ID': item['id'],
-                        'Stage Name': stage['stageName'],
-                        'Logging Level': logs,
-                        'X-Ray Enabled': xray
-                    })
-            except Exception as e:
-                print(f"Error fetching stages for API {item['name']}: {str(e)}")
+    paginator = apigateway_client.get_paginator('get_rest_apis')
+    api_list = [api for page in paginator.paginate() for api in page['items']]
     
-    df = pd.DataFrame(data)
-    # Ordenando o DataFrame
-    df_sorted = df.sort_values(by=['API Name'], ascending=[True])
-    return df_sorted
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        api_details = list(executor.map(get_api_details, api_list))
+        # Flatten the list of lists
+        api_details_flat = [item for sublist in api_details for item in sublist]
+
+    return pd.DataFrame(api_details_flat)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
