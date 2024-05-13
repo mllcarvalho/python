@@ -38,7 +38,7 @@ def clear_cache(n_clicks):
 app.layout = html.Div([
     html.Div([
         html.Div([
-            html.H1('AWS Services Dashboard', style={'display': 'inline-block'}),
+            html.H1('TechEnablers - AWS Dashboard', style={'display': 'inline-block'}),
             dcc.Input(id='account-id-display', type='text', placeholder='Account ID', style={'margin-left': '20px', 'border': 'none', 'color': 'blue', 'width': '200px', 'display': 'inline-block', 'font-weight': 'bold'}, readOnly=True),
         ], style={'width': '30%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
@@ -54,14 +54,14 @@ app.layout = html.Div([
     ], style={'width': '100%', 'display': 'block', 'margin-bottom': '10px'}),
 
     dcc.Loading(
-        id="loading-1",
+        id="loading-indicator",
         type="default",
         children=dcc.Tabs(id="tabs", children=[
-            dcc.Tab(label='ECS Services', children=[html.Div(id='ecs-dashboard')]),
-            dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')]),
-            dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')]),
-            dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')]),
-            dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')])
+            dcc.Tab(label='ECS Services', children=[html.Div(id='ecs-dashboard')], id='tab-ecs'),
+            dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')], id='tab-dynamodb'),
+            dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')], id='tab-rds'),
+            dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')], id='tab-lb'),
+            dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')], id='tab-api')
         ])
     )
 ])
@@ -72,7 +72,12 @@ app.layout = html.Div([
      Output('rds-dashboard', 'children'),
      Output('load-balancer-dashboard', 'children'),
      Output('api-gateway-dashboard', 'children'),
-     Output('account-id-display', 'value')],
+     Output('account-id-display', 'value'),
+     Output('tab-ecs', 'label'),
+     Output('tab-dynamodb', 'label'),
+     Output('tab-rds', 'label'),
+     Output('tab-lb', 'label'),
+     Output('tab-api', 'label')],
     Input('refresh-button', 'n_clicks'),
     State('aws-creds-input', 'value')
 )
@@ -170,7 +175,14 @@ def update_dashboards(n_clicks, creds_input):
             ]
         )
 
-        return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, account_id]
+        ecs_label = f"ECS Services ({len(ecs_data)})"
+        dynamodb_label = f"DynamoDB Tables ({len(dynamodb_data)})"
+        rds_label = f"RDS Instances ({len(rds_data)})"
+        lb_label = f"Load Balancers ({len(elbv2_data)})"
+        api_label = f"API Gateway ({len(api_data)})"
+        
+        return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, account_id, ecs_label, dynamodb_label, rds_label, lb_label, api_label]
+
     # Se não clicar ou não tiver credenciais, retorna divs vazias e sem ID da conta
     return [html.Div()]*5 + [""]
 
