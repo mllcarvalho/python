@@ -39,7 +39,7 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             html.H1('AWS Services Dashboard', style={'display': 'inline-block'}),
-            dcc.Input(id='account-id-display', type='text', placeholder='Account ID', style={'margin-left': '20px', 'border': 'none', 'color': 'blue', 'width': '200px'}),
+            dcc.Input(id='account-id-display', type='text', placeholder='Account ID', style={'margin-left': '20px', 'border': 'none', 'color': 'blue', 'width': '200px', 'display': 'inline-block', 'font-weight': 'bold'}, readOnly=True),
         ], style={'width': '30%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
         html.Div([
@@ -53,13 +53,18 @@ app.layout = html.Div([
         ], style={'width': '30%', 'display': 'inline-block', 'text-align': 'right', 'vertical-align': 'top'}),
     ], style={'width': '100%', 'display': 'block', 'margin-bottom': '10px'}),
 
-    dcc.Tabs(id="tabs", children=[
-        dcc.Tab(label='ECS Services', children=[html.Div(id='ecs-dashboard')]),
-        dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')]),
-        dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')]),
-        dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')]),
-        dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')])
-    ], style={'padding': '10px'})
+    dcc.Loading(
+        id="loading-1",
+        type="default",
+        children=dcc.Tabs(id="tabs", children=[
+            dcc.Tab(label='ECS Services', children=[html.Div(id='ecs-dashboard')]),
+            dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')]),
+            dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')]),
+            dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')]),
+            dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')]),
+            dcc.Tab(label='S3 Buckets', children=[html.Div(id='s3-buckets-dashboard')])
+        ])
+    )
 ])
 
 @app.callback(
