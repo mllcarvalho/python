@@ -1,7 +1,7 @@
 from flask import Flask
 from dash import dash_table, html, dcc, Input, Output, callback, dash, ctx, State
 from flask_caching import Cache
-from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import boto3
 import pandas as pd
 import datetime
@@ -61,8 +61,7 @@ app.layout = html.Div([
             dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')]),
             dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')]),
             dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')]),
-            dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')]),
-            dcc.Tab(label='S3 Buckets', children=[html.Div(id='s3-buckets-dashboard')])
+            dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')])
         ])
     )
 ])
@@ -98,7 +97,7 @@ def update_dashboards(n_clicks, creds_input):
         cloudwatch_client = session.client('cloudwatch')
         apigateway_client = session.client('apigateway')
 
-        ecs_data = fetch_ecs_data(ecs_client, cloudwatch_client)
+        ecs_data = fetch_ecs_data_concurrent(ecs_client, cloudwatch_client)
         dynamodb_data = fetch_dynamodb_data(dynamodb_client)
         rds_data = fetch_rds_data(rds_client, cloudwatch_client)
         elbv2_data = fetch_load_balancers(elbv2_client)
@@ -175,46 +174,52 @@ def update_dashboards(n_clicks, creds_input):
     # Se não clicar ou não tiver credenciais, retorna divs vazias e sem ID da conta
     return [html.Div()]*5 + [""]
 
-def fetch_ecs_data(ecs_client, cloudwatch_client):
+def fetch_ecs_data_concurrent(ecs_client, cloudwatch_client):
     data = []
     cluster_paginator = ecs_client.get_paginator('list_clusters')
-    for cluster_page in cluster_paginator.paginate():
-        for cluster_arn in cluster_page['clusterArns']:
-            cluster_name = cluster_arn.split('/')[-1]
-            service_paginator = ecs_client.get_paginator('list_services')
-            for service_page in service_paginator.paginate(cluster=cluster_arn):
-                described_services = ecs_client.describe_services(
-                    cluster=cluster_arn, services=service_page['serviceArns']
-                )['services']
+    cluster_list = [cluster_arn for page in cluster_paginator.paginate() for cluster_arn in page['clusterArns']]
+    
+    # Função para processar cada serviço
+    def process_service(cluster_arn):
+        cluster_name = cluster_arn.split('/')[-1]
+        service_paginator = ecs_client.get_paginator('list_services')
+        for service_page in service_paginator.paginate(cluster=cluster_arn):
+            described_services = ecs_client.describe_services(
+                cluster=cluster_arn, services=service_page['serviceArns']
+            )['services']
+            
+            for service in described_services:
+                task_def_arn = service['taskDefinition']
+                task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)
+                task_cpu = task_def['taskDefinition'].get('cpu', 'N/A')  
+                task_memory = task_def['taskDefinition'].get('memory', 'N/A')
                 
-                for service in described_services:
-                    task_def_arn = service['taskDefinition']
-                    task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)
-                    task_cpu = task_def['taskDefinition'].get('cpu', 'N/A')  
-                    task_memory = task_def['taskDefinition'].get('memory', 'N/A') 
+                container_definitions = task_def['taskDefinition']['containerDefinitions']
+                log_configuration = container_definitions[0].get('logConfiguration', {}) if container_definitions else {}
+                log_driver = log_configuration.get('logDriver', 'None')
+                
+                cpu_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'CPUUtilization')
+                memory_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'MemoryUtilization')
+                
+                data.append({
+                    'Cluster Name': cluster_name,
+                    'Service Name': service['serviceName'],
+                    'Task Count': service['desiredCount'],
+                    'Log Driver': log_driver,
+                    'Capacity Provider': service.get('capacityProviderStrategy', [{'capacityProvider': 'N/A'}])[0]['capacityProvider'],
+                    'vCPU': task_cpu,
+                    'Memory': task_memory,
+                    'Avg CPU Usage (%)': cpu_usage,
+                    'Avg Memory Usage (%)': memory_usage,
+                })
 
-                    container_definitions = task_def['taskDefinition']['containerDefinitions']
-                    log_configuration = container_definitions[0].get('logConfiguration', {}) if container_definitions else {}
-                    log_driver = log_configuration.get('logDriver', 'None')
-                    
-                    cpu_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'CPUUtilization')
-                    memory_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'MemoryUtilization')
-                    
-                    data.append({
-                        'Cluster Name': cluster_name,
-                        'Service Name': service['serviceName'],
-                        'Task Count': service['desiredCount'],
-                        'Log Driver': log_driver,
-                        'Capacity Provider': service.get('capacityProviderStrategy', [{'capacityProvider': 'N/A'}])[0]['capacityProvider'],
-                        'vCPU': task_cpu,
-                        'Memory': task_memory,
-                        'Avg CPU Usage (%)': cpu_usage,
-                        'Avg Memory Usage (%)': memory_usage,    
-                    })
+    # Uso de ThreadPool para processar cada cluster em paralelo
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        executor.map(process_service, cluster_list)
+
     df = pd.DataFrame(data)
-    # Ordenando o DataFrame
-    df_sorted = df.sort_values(by=['Cluster Name', 'Service Name'], ascending=[True, True])
-    return df_sorted
+    return df.sort_values(by=['Cluster Name', 'Service Name'], ascending=[True, True])
+
 
 @cache.memoize(timeout=86400)  # Cache a função por um dia
 def get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service_name, metric_name):
