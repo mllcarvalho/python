@@ -52,6 +52,7 @@ app.layout = html.Div([
         dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')]),
         dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')]),
         dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')]),
+        dcc.Tab(label='S3 Buckets', children=[html.Div(id='s3-buckets-dashboard')]),
     ])
 ])
 
@@ -60,7 +61,8 @@ app.layout = html.Div([
      Output('dynamodb-dashboard', 'children'),
      Output('rds-dashboard', 'children'),
      Output('load-balancer-dashboard', 'children'),
-     Output('api-gateway-dashboard', 'children'),],
+     Output('api-gateway-dashboard', 'children'),
+     Output('s3-buckets-dashboard', 'children')],
     Input('refresh-button', 'n_clicks'),
     [State('aws-access-key', 'value'), State('aws-secret-key', 'value'), State('aws-session-token', 'value')]
 )
@@ -80,6 +82,7 @@ def update_dashboards(n_clicks, access_key, secret_key, session_token):
         rds_data = fetch_rds_data(rds_client, cloudwatch_client)
         elbv2_data = fetch_load_balancers(elbv2_client)
         api_data = fetch_api_gateway_data(apigateway_client)
+        s3_data = fetch_s3_buckets_data(s3_client)
 
         ecs_table = dash_table.DataTable(
             id='ecs-table',
@@ -139,11 +142,30 @@ def update_dashboards(n_clicks, access_key, secret_key, session_token):
             data=api_data.to_dict('records'),
             filter_action='native',
             sort_action='native',
-            style_cell={'textAlign': 'left', 'padding': '5px'}
+            style_cell={'textAlign': 'left', 'padding': '5px'},
+            style_data_conditional=[
+                {'if': {'column_id': 'Logging Level', 'filter_query': '{Logging Level} != "OFF"'},
+                'backgroundColor': '#FFCCCC'},
+                {'if': {'column_id': 'X-Ray Enabled', 'filter_query': '{X-Ray Enabled} eq True'},
+                'backgroundColor': '#FFCCCC'}
+            ]
         )
 
-        return ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table
-    return html.Div(), html.Div(), html.Div(), html.Div(), html.Div() # Return empty divs if not refreshed yet
+        s3_table = dash_table.DataTable(
+            id='s3-table',
+            columns=[{'name': i, 'id': i} for i in s3_data.columns],
+            data=s3_data.to_dict('records'),
+            filter_action='native',
+            sort_action='native',
+            style_cell={'textAlign': 'left', 'padding': '5px'},
+            style_data_conditional=[
+                {'if': {'column_id': 'Storage Type', 'filter_query': '{Storage Type} eq "STANDARD"'},
+                'backgroundColor': '#FFCCCC'}
+            ]
+        )
+
+        return ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, s3_table
+    return html.Div(), html.Div(), html.Div(), html.Div(), html.Div(), html.Div() # Return empty divs if not refreshed yet
 
 def fetch_ecs_data(ecs_client, cloudwatch_client):
     data = []
@@ -162,6 +184,10 @@ def fetch_ecs_data(ecs_client, cloudwatch_client):
                     task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)
                     task_cpu = task_def['taskDefinition'].get('cpu', 'N/A')  
                     task_memory = task_def['taskDefinition'].get('memory', 'N/A') 
+
+                    container_definitions = task_def['taskDefinition']['containerDefinitions']
+                    log_configuration = container_definitions[0].get('logConfiguration', {}) if container_definitions else {}
+                    log_driver = log_configuration.get('logDriver', 'None')
                     
                     cpu_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'CPUUtilization')
                     memory_usage = get_cloudwatch_metric_average(cloudwatch_client, cluster_name, service['serviceName'], 'MemoryUtilization')
@@ -170,6 +196,7 @@ def fetch_ecs_data(ecs_client, cloudwatch_client):
                         'Cluster Name': cluster_name,
                         'Service Name': service['serviceName'],
                         'Task Count': service['desiredCount'],
+                        'Log Driver': log_driver,
                         'Capacity Provider': service.get('capacityProviderStrategy', [{'capacityProvider': 'N/A'}])[0]['capacityProvider'],
                         'vCPU': task_cpu,
                         'Memory': task_memory,
@@ -271,30 +298,61 @@ def fetch_load_balancers(elbv2_client):
 
 # Definindo a função para recuperar dados dos API Gateways
 def fetch_api_gateway_data(apigateway_client):
-    # Recuperar todos os gateways
-    response = apigateway_client.get_rest_apis()
-    items = response['items']
-    
+    # Lista para armazenar todos os dados dos API Gateways
     data = []
-    for item in items:
-        # Detalhes do log e X-Ray
-        try:
-            stage_response = apigateway_client.get_stages(restApiId=item['id'])
-            for stage in stage_response['item']:
-                logs = stage.get('methodSettings', {}).get('*', {}).get('loggingLevel', 'OFF')
-                xray = stage.get('methodSettings', {}).get('*', {}).get('dataTraceEnabled', False)
-                data.append({
-                    'API Name': item['name'],
-                    'API ID': item['id'],
-                    'Stage Name': stage['stageName'],
-                    'Logging Level': logs,
-                    'X-Ray Enabled': xray
-                })
-        except Exception as e:
-            print(f"Error fetching stages for API {item['name']}: {str(e)}")
+    
+    # Inicializa a paginação
+    paginator = apigateway_client.get_paginator('get_rest_apis')
+    page_iterator = paginator.paginate()
+
+    # Loop através de cada página de API Gateways
+    for page in page_iterator:
+        for item in page['items']:
+            # Tentar recuperar as configurações de estágio para cada API Gateway
+            try:
+                stage_response = apigateway_client.get_stages(restApiId=item['id'])
+                for stage in stage_response['item']:
+                    logs = stage.get('methodSettings', {}).get('*', {}).get('loggingLevel', 'OFF')
+                    xray = stage.get('methodSettings', {}).get('*', {}).get('dataTraceEnabled', False)
+                    data.append({
+                        'API Name': item['name'],
+                        'API ID': item['id'],
+                        'Stage Name': stage['stageName'],
+                        'Logging Level': logs,
+                        'X-Ray Enabled': xray
+                    })
+            except Exception as e:
+                print(f"Error fetching stages for API {item['name']}: {str(e)}")
     
     df = pd.DataFrame(data)
+    # Ordenando o DataFrame
     df_sorted = df.sort_values(by=['API Name'], ascending=[True])
+    return df_sorted
+
+def fetch_s3_buckets_data(s3_client):
+    # Lista para armazenar os dados dos buckets
+    data = []
+    
+    # Busca todos os buckets na conta
+    buckets = s3_client.list_buckets()
+    for bucket in buckets['Buckets']:
+        # Recuperar informações de configuração de armazenamento (assumindo o uso de 'get_bucket_storage_class' como exemplo)
+        try:
+            storage_class = s3_client.get_bucket_storage_class(Bucket=bucket['Name'])  # Este método precisa ser implementado ou ajustado conforme a API disponível
+            data.append({
+                'Bucket Name': bucket['Name'],
+                'Storage Type': storage_class
+            })
+        except Exception as e:
+            data.append({
+                'Bucket Name': bucket['Name'],
+                'Storage Type': 'Unknown'
+            })
+            print(f"Error retrieving storage class for bucket {bucket['Name']}: {str(e)}")
+    
+    df = pd.DataFrame(data)
+    # Ordenando o DataFrame
+    df_sorted = df.sort_values(by=['Bucket Name'], ascending=[True])
     return df_sorted
 
 if __name__ == '__main__':
