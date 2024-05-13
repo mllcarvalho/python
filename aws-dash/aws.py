@@ -331,58 +331,48 @@ def fetch_api_gateway_data(apigateway_client):
     return df_sorted
 
 def fetch_s3_buckets_data(s3_client):
-    # Lista para armazenar os dados dos buckets
-    data = []
+    all_buckets_details = []
+
+    # Lista todos os buckets na conta AWS
+    buckets_response = s3_client.list_buckets()
     
-    # Busca todos os buckets na conta
-    buckets = s3_client.list_buckets()
-    for bucket in buckets['Buckets']:
-        # Recuperar informações de configuração de armazenamento
+    for bucket in buckets_response['Buckets']:
+        bucket_name = bucket['Name']
+        storage_classes = []
+
+        # Lista os objetos no bucket e coleta suas classes de armazenamento
+        paginator = s3_client.get_paginator('list_objects_v2')
+        page_iterator = paginator.paginate(Bucket=bucket_name)
+
         try:
-            storage_class = get_bucket_storage_class(s3_client, bucket['Name'])   
-            data.append({
-                'Bucket Name': bucket['Name'],
-                'Storage Type': storage_class
+            for page in page_iterator:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        storage_classes.append(obj.get('StorageClass', 'STANDARD'))  # Assume STANDARD se não especificado
+
+                # Limitar a análise para os primeiros 1000 objetos para controle de custo e desempenho
+                if len(storage_classes) >= 100:
+                    break
+
+            # Conta as ocorrências de cada classe de armazenamento
+            storage_count = Counter(storage_classes)
+            # Encontra a classe de armazenamento mais comum
+            predominant_storage_class = storage_count.most_common(1)[0][0] if storage_count else 'No data'
+
+            # Adicionar os detalhes ao resultado
+            all_buckets_details.append({
+                'Bucket Name': bucket_name,
+                'Predominant Storage Class': predominant_storage_class
             })
+
         except Exception as e:
-            data.append({
-                'Bucket Name': bucket['Name'],
-                'Storage Type': 'Unknown'
+            print(f"Error retrieving objects for bucket {bucket_name}: {str(e)}")
+            all_buckets_details.append({
+                'Bucket Name': bucket_name,
+                'Predominant Storage Class': 'Error'
             })
-            print(f"Error retrieving storage class for bucket {bucket['Name']}: {str(e)}")
-    
-    df = pd.DataFrame(data)
-    # Ordenando o DataFrame
-    df_sorted = df.sort_values(by=['Bucket Name'], ascending=[True])
-    return df_sorted
 
-def get_bucket_storage_class(s3_client, bucket_name):
-    storage_classes = []
-
-    # Lista os objetos no bucket e coleta suas classes de armazenamento
-    paginator = s3_client.get_paginator('list_objects_v2')
-    page_iterator = paginator.paginate(Bucket=bucket_name)
-    
-    try:
-        for page in page_iterator:
-            if 'Contents' in page:
-                for obj in page['Contents']:
-                    storage_classes.append(obj.get('StorageClass', 'STANDARD'))  # Assume STANDARD se não especificado
-
-            # Limitar a análise para os primeiros 1000 objetos para controle de custo e desempenho
-            if len(storage_classes) >= 500:
-                break
-
-        # Conta as ocorrências de cada classe de armazenamento
-        storage_count = Counter(storage_classes)
-        # Encontra a classe de armazenamento mais comum
-        predominant_storage_class = storage_count.most_common(1)[0][0] if storage_count else 'No data'
-        
-        return predominant_storage_class
-
-    except Exception as e:
-        print(f"Error retrieving storage class for bucket {bucket_name}: {str(e)}")
-        return "Error"
+    return pd.DataFrame(all_buckets_details)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
