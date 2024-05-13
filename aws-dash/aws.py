@@ -160,7 +160,7 @@ def update_dashboards(n_clicks, creds_input):
             ]
         )
 
-        return [html.Div(f"Example table for {key}") for key in ['ECS', 'DynamoDB', 'RDS', 'Load Balancers', 'API Gateway']] + [account_id]
+        return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, account_id]
     # Se não clicar ou não tiver credenciais, retorna divs vazias e sem ID da conta
     return [html.Div()]*5 + [""]
 
