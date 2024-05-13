@@ -1,6 +1,7 @@
 from flask import Flask
 from dash import dash_table, html, dcc, Input, Output, callback, dash, ctx, State
 from flask_caching import Cache
+from collections import Counter
 import boto3
 import pandas as pd
 import datetime
@@ -336,9 +337,9 @@ def fetch_s3_buckets_data(s3_client):
     # Busca todos os buckets na conta
     buckets = s3_client.list_buckets()
     for bucket in buckets['Buckets']:
-        # Recuperar informações de configuração de armazenamento (assumindo o uso de 'get_bucket_storage_class' como exemplo)
+        # Recuperar informações de configuração de armazenamento
         try:
-            storage_class = s3_client.get_bucket_storage_class(Bucket=bucket['Name'])  # Este método precisa ser implementado ou ajustado conforme a API disponível
+            storage_class = get_bucket_storage_class(s3_client, bucket['Name'])   
             data.append({
                 'Bucket Name': bucket['Name'],
                 'Storage Type': storage_class
@@ -354,6 +355,34 @@ def fetch_s3_buckets_data(s3_client):
     # Ordenando o DataFrame
     df_sorted = df.sort_values(by=['Bucket Name'], ascending=[True])
     return df_sorted
+
+def get_bucket_storage_class(s3_client, bucket_name):
+    storage_classes = []
+
+    # Lista os objetos no bucket e coleta suas classes de armazenamento
+    paginator = s3_client.get_paginator('list_objects_v2')
+    page_iterator = paginator.paginate(Bucket=bucket_name)
+    
+    try:
+        for page in page_iterator:
+            if 'Contents' in page:
+                for obj in page['Contents']:
+                    storage_classes.append(obj.get('StorageClass', 'STANDARD'))  # Assume STANDARD se não especificado
+
+            # Limitar a análise para os primeiros 1000 objetos para controle de custo e desempenho
+            if len(storage_classes) >= 500:
+                break
+
+        # Conta as ocorrências de cada classe de armazenamento
+        storage_count = Counter(storage_classes)
+        # Encontra a classe de armazenamento mais comum
+        predominant_storage_class = storage_count.most_common(1)[0][0] if storage_count else 'No data'
+        
+        return predominant_storage_class
+
+    except Exception as e:
+        print(f"Error retrieving storage class for bucket {bucket_name}: {str(e)}")
+        return "Error"
 
 if __name__ == '__main__':
     app.run_server(debug=True)
