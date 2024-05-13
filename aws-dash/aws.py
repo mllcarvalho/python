@@ -39,21 +39,20 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             html.H1('AWS Services Dashboard', style={'display': 'inline-block'}),
-            dcc.Input(id='account-id-display', type='text', placeholder='Account ID', style={'margin-left': '20px', 'border': 'none', 'color': 'blue', 'width': '200px'})
-        ], style={'float': 'left', 'padding': '10px'}),
-        
+            dcc.Input(id='account-id-display', type='text', placeholder='Account ID', style={'margin-left': '20px', 'border': 'none', 'color': 'blue', 'width': '200px'}),
+        ], style={'width': '30%', 'display': 'inline-block', 'vertical-align': 'top'}),
+
         html.Div([
-            dcc.Textarea(id='aws-creds-input', style={'width': '350px', 'height': '100px'}, placeholder="Enter AWS credentials in format:\naws_access_key_id=XXX\naws_secret_access_key=XXX\naws_session_token=XXX"),
-            html.Button('Refresh', id='refresh-button', n_clicks=0)
-        ], style={'float': 'left', 'padding': '10px', 'align-items': 'center', 'justify-content': 'center'}),
-        
+            dcc.Textarea(id='aws-creds-input', style={'width': '100%', 'height': '100px'}, placeholder="Enter AWS credentials in format:\naws_access_key_id=XXX\naws_secret_access_key=XXX\naws_session_token=XXX"),
+            html.Button('Refresh', id='refresh-button', n_clicks=0, style={'margin-top': '5px'}),
+        ], style={'width': '40%', 'display': 'inline-block', 'vertical-align': 'top'}),
+
         html.Div([
-            html.Button('Clear Cache', id='clear-cache-button')
-        ], style={'float': 'right', 'padding': '10px'}),
-        
-        html.Div(style={'clear': 'both'})  # Clear float
-    ], style={'border-bottom': '2px solid #ccc', 'padding': '10px', 'background': '#f8f9fa'}),
-    
+            html.Button('Clear Cache', id='clear-cache-button'),
+            html.Div(id='cache-status', style={'color': 'green', 'font-weight': 'bold', 'margin-top': '5px'})
+        ], style={'width': '30%', 'display': 'inline-block', 'text-align': 'right', 'vertical-align': 'top'}),
+    ], style={'width': '100%', 'display': 'block', 'margin-bottom': '10px'}),
+
     dcc.Tabs(id="tabs", children=[
         dcc.Tab(label='ECS Services', children=[html.Div(id='ecs-dashboard')]),
         dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')]),
