@@ -58,6 +58,7 @@ app.layout = html.Div([
     [Output('ecs-dashboard', 'children'),
      Output('dynamodb-dashboard', 'children'),
      Output('rds-dashboard', 'children')],
+     Output('load-balancer-dashboard', 'children'),
     Input('refresh-button', 'n_clicks'),
     [State('aws-access-key', 'value'), State('aws-secret-key', 'value'), State('aws-session-token', 'value')]
 )
