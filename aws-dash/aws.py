@@ -71,8 +71,10 @@ def update_dashboards(n_clicks, creds_input):
         # Processa as credenciais a partir da entrada do usuário
         credentials = {}
         for line in creds_input.split('\n'):
-            key, value = line.split('=')
-            credentials[key.strip()] = value.strip()
+            parts = line.split('=', 1)  # Divide apenas no primeiro '=' encontrado
+            if len(parts) == 2:
+                key, value = parts
+                credentials[key.strip()] = value.strip()
 
         session = create_aws_session(credentials)
         sts_client = session.client('sts')
