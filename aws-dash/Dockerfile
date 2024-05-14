@@ -11,4 +11,4 @@ COPY . .
 EXPOSE 8050
 
 # Comando para rodar a aplicação
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8050", "aws:server"]
+CMD ["gunicorn", "aws:server", "-c", "gunicorn_config.py"]
