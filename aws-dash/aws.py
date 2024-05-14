@@ -341,21 +341,25 @@ def fetch_load_balancers(elbv2_client):
         listeners_response = elbv2_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])
         listener_count = len(listeners_response['Listeners'])
 
-        # Contagem de registered targets
-        total_registered_targets = 0
+        # Flag para determinar se há registered targets
+        has_registered_targets = False
 
         for listener in listeners_response['Listeners']:
             target_groups_response = elbv2_client.describe_target_groups(LoadBalancerArn=lb['LoadBalancerArn'])
             for target_group in target_groups_response['TargetGroups']:
                 targets_response = elbv2_client.describe_target_health(TargetGroupArn=target_group['TargetGroupArn'])
-                total_registered_targets += len(targets_response['TargetHealthDescriptions'])
+                if len(targets_response['TargetHealthDescriptions']) > 0:
+                    has_registered_targets = True
+                    break
+            if has_registered_targets:
+                break
 
         return {
             'Load Balancer Name': lb['LoadBalancerName'],
             'Load Balancer ARN': lb['LoadBalancerArn'],
             'Type': lb['Type'],
             'Listeners': listener_count,
-            'Registered Targets': total_registered_targets
+            'Has Registered Targets': has_registered_targets
         }
 
     load_balancers = elbv2_client.describe_load_balancers()['LoadBalancers']
