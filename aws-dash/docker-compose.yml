@@ -1,12 +1,13 @@
 version: '3.8'
+
 services:
-  dash-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  web:
+    build: .
     ports:
       - "8050:8050"
+    environment:
+      - AWS_ACCESS_KEY_ID=your_access_key
+      - AWS_SECRET_ACCESS_KEY=your_secret_key
+      - AWS_SESSION_TOKEN=your_session_token
     volumes:
       - .:/app
-    environment:
-      - PYTHONUNBUFFERED=1
