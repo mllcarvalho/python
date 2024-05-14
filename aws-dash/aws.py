@@ -7,12 +7,6 @@ import boto3
 import pandas as pd
 import datetime
 import io
-import time
-from botocore.exceptions import ClientError
-
-# Increase the timeout limit for Flask/Dash
-import socket
-socket.setdefaulttimeout(300)  # 5 minutes
 
 server = Flask(__name__)
 app = dash.Dash(__name__, server=server, url_base_pathname='/')
@@ -343,48 +337,14 @@ def get_cpu_usage(cloudwatch_client, db_instance_identifier):
 
 def fetch_load_balancers(elbv2_client):
     def describe_load_balancer(lb):
-        # Descrever listeners associados ao load balancer
-        listeners_response = retry_throttled_call(elbv2_client.describe_listeners, LoadBalancerArn=lb['LoadBalancerArn'])
+        listeners_response = elbv2_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])
         listener_count = len(listeners_response['Listeners'])
-
-        # Flag para determinar se há registered targets
-        has_registered_targets = False
-
-        for listener in listeners_response['Listeners']:
-            target_groups_response = retry_throttled_call(elbv2_client.describe_target_groups, LoadBalancerArn=lb['LoadBalancerArn'])
-            for target_group in target_groups_response['TargetGroups']:
-                has_registered_targets = check_target_health(elbv2_client, target_group['TargetGroupArn'])
-                if has_registered_targets:
-                    break
-            if has_registered_targets:
-                break
-
         return {
             'Load Balancer Name': lb['LoadBalancerName'],
             'Load Balancer ARN': lb['LoadBalancerArn'],
             'Type': lb['Type'],
-            'Listeners': listener_count,
-            'Has Registered Targets': has_registered_targets
+            'Listeners': listener_count
         }
-
-    def check_target_health(elbv2_client, target_group_arn):
-        targets_response = retry_throttled_call(elbv2_client.describe_target_health, TargetGroupArn=target_group_arn)
-        return len(targets_response['TargetHealthDescriptions']) > 0
-
-    def retry_throttled_call(func, **kwargs):
-        retries = 5
-        delay = 1
-        while retries > 0:
-            try:
-                return func(**kwargs)
-            except ClientError as e:
-                if e.response['Error']['Code'] == 'Throttling':
-                    time.sleep(delay)
-                    delay *= 2  # Exponential backoff
-                    retries -= 1
-                else:
-                    raise e
-        raise Exception(f"Max retries exceeded for {func.__name__}")
 
     load_balancers = elbv2_client.describe_load_balancers()['LoadBalancers']
     
