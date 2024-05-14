@@ -52,8 +52,8 @@ app.layout = html.Div([
         html.Div([
             html.Button('Clear Cache', id='clear-cache-button'),
             html.Div(id='cache-status', style={'color': 'green', 'font-weight': 'bold', 'margin-top': '5px'}),
-            html.A('Download Excel File', id='download-link', download='', href='', target='_blank', style={'display': 'none'}),
             html.Button('Export All to Excel', id='export-all', n_clicks=0, style={'margin-top': '5px'}),
+            dcc.Download(id='download-dataframe-xlsx')
         ], style={'width': '30%', 'display': 'inline-block', 'text-align': 'right', 'vertical-align': 'top'}),
     ], style={'width': '100%', 'display': 'block', 'margin-bottom': '10px'}),
 
@@ -414,14 +414,15 @@ def fetch_s3_buckets_info(s3_client):
     return pd.DataFrame(results)
 
 @app.callback(
-    Output('download-link', 'href'),
+    Output('download-dataframe-xlsx', 'data'),
     Input('export-all', 'n_clicks'),
     State('ecs-dashboard', 'children'),
     State('dynamodb-dashboard', 'children'),
     State('rds-dashboard', 'children'),
     State('load-balancer-dashboard', 'children'),
     State('api-gateway-dashboard', 'children'),
-    State('s3-dashboard', 'children')
+    State('s3-dashboard', 'children'),
+    prevent_initial_call=True
 )
 def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_data, api_data, s3_data):
     if n_clicks > 0:
@@ -451,18 +452,7 @@ def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_dat
             s3_df.to_excel(writer, sheet_name='S3 Buckets', index=False)
 
         output.seek(0)
-        return f'/download/aws_dashboard_data.xlsx'
-
-    return '#'
-
-@server.route('/download/aws_dashboard_data.xlsx')
-def download_excel():
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Example DataFrames
-        pd.DataFrame({'Example': [1, 2, 3]}).to_excel(writer, sheet_name='Sheet1', index=False)
-    output.seek(0)
-    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, attachment_filename='aws_dashboard_data.xlsx')
+        return dcc.send_bytes(output.getvalue(), 'aws_dashboard_data.xlsx')
 
 if __name__ == '__main__':
     app.run_server(host='127.0.0.1', port=8050, debug=True)
