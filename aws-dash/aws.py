@@ -422,39 +422,36 @@ def fetch_s3_buckets_info(s3_client):
     State('load-balancer-dashboard', 'children'),
     State('api-gateway-dashboard', 'children'),
     State('s3-dashboard', 'children'),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
-def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_data, api_data, s3_data):
+def download_excel(n_clicks, ecs_data, dynamodb_data, rds_data, elbv2_data, api_data, s3_data):
     if n_clicks > 0:
+        # Extract data from the dashboards
+        ecs_df = pd.DataFrame(ecs_data[0]['props']['data']) if ecs_data and len(ecs_data) > 0 and 'props' in ecs_data[0] else pd.DataFrame()
+        dynamodb_df = pd.DataFrame(dynamodb_data[0]['props']['data']) if dynamodb_data and len(dynamodb_data) > 0 and 'props' in dynamodb_data[0] else pd.DataFrame()
+        rds_df = pd.DataFrame(rds_data[0]['props']['data']) if rds_data and len(rds_data) > 0 and 'props' in rds_data[0] else pd.DataFrame()
+        elbv2_df = pd.DataFrame(elbv2_data[0]['props']['data']) if elbv2_data and len(elbv2_data) > 0 and 'props' in elbv2_data[0] else pd.DataFrame()
+        api_df = pd.DataFrame(api_data[0]['props']['data']) if api_data and len(api_data) > 0 and 'props' in api_data[0] else pd.DataFrame()
+        s3_df = pd.DataFrame(s3_data[0]['props']['data']) if s3_data and len(s3_data) > 0 and 'props' in s3_data[0] else pd.DataFrame()
+
+        # Create a BytesIO buffer to hold the Excel file
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # Extract data and convert to DataFrame
-            def extract_data(data):
-                if data and isinstance(data, list) and len(data) > 0 and 'props' in data[0]:
-                    table_data = data[0]['props'].get('data', [])
-                    if table_data:
-                        return pd.DataFrame(table_data)
-                return pd.DataFrame()
+        writer = pd.ExcelWriter(output, engine='xlsxwriter')
 
-            ecs_df = extract_data(ecs_data)
-            dynamodb_df = extract_data(dynamodb_data)
-            rds_df = extract_data(rds_data)
-            lb_df = extract_data(lb_data)
-            api_df = extract_data(api_data)
-            s3_df = extract_data(s3_data)
+        # Write each DataFrame to a different sheet
+        ecs_df.to_excel(writer, sheet_name='ECS Services', index=False)
+        dynamodb_df.to_excel(writer, sheet_name='DynamoDB Tables', index=False)
+        rds_df.to_excel(writer, sheet_name='RDS Instances', index=False)
+        elbv2_df.to_excel(writer, sheet_name='Load Balancers', index=False)
+        api_df.to_excel(writer, sheet_name='API Gateway', index=False)
+        s3_df.to_excel(writer, sheet_name='S3 Buckets', index=False)
 
-            # Save each DataFrame to a separate sheet
-            ecs_df.to_excel(writer, sheet_name='ECS Services', index=False)
-            dynamodb_df.to_excel(writer, sheet_name='DynamoDB Tables', index=False)
-            rds_df.to_excel(writer, sheet_name='RDS Instances', index=False)
-            lb_df.to_excel(writer, sheet_name='Load Balancers', index=False)
-            api_df.to_excel(writer, sheet_name='API Gateway', index=False)
-            s3_df.to_excel(writer, sheet_name='S3 Buckets', index=False)
-
+        # Save the Excel file to the buffer
+        writer.save()
         output.seek(0)
-        return dcc.send_bytes(output.getvalue(), 'aws_dashboard_data.xlsx')
 
-    return dcc.send_bytes(None)
+        # Return the data to be downloaded
+        return dcc.send_bytes(output.read(), filename='aws_dashboard_data.xlsx')
 
 if __name__ == '__main__':
     app.run_server(host='127.0.0.1', port=8050, debug=True)
