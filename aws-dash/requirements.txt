@@ -8,4 +8,3 @@ boto3==1.21.33
 pandas==1.4.2
 XlsxWriter==1.4.4
 dash-bootstrap-components==1.0.0
-collections==3.10.0
