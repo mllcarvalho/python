@@ -47,6 +47,7 @@ app.layout = html.Div([
         html.Div([
             dcc.Textarea(id='aws-creds-input', style={'width': '100%', 'height': '100px'}, placeholder="Enter AWS credentials in format:\naws_access_key_id=XXX\naws_secret_access_key=XXX\naws_session_token=XXX"),
             html.Button('Refresh', id='refresh-button', n_clicks=0, style={'margin-top': '5px'}),
+            html.Div(id='error-message', style={'color': 'red', 'font-weight': 'bold', 'margin-top': '5px'}),
         ], style={'width': '40%', 'display': 'inline-block', 'vertical-align': 'top'}),
 
         html.Div([
@@ -84,7 +85,8 @@ app.layout = html.Div([
      Output('tab-rds', 'label'),
      Output('tab-lb', 'label'),
      Output('tab-api', 'label'),
-     Output('tab-s3', 'label')],
+     Output('tab-s3', 'label'),
+     Output('error-message', 'children')],
     Input('refresh-button', 'n_clicks'),
     State('aws-creds-input', 'value')
 )
@@ -98,112 +100,117 @@ def update_dashboards(n_clicks, creds_input):
                 key, value = parts
                 credentials[key.strip()] = value.strip()
 
-        session = create_aws_session(credentials)
-        sts_client = session.client('sts')
-        account_id = sts_client.get_caller_identity().get('Account')
+        try:
+            session = create_aws_session(credentials)
+            sts_client = session.client('sts')
+            account_id = sts_client.get_caller_identity().get('Account')
 
-        ecs_client = session.client('ecs')
-        dynamodb_client = session.client('dynamodb')
-        rds_client = session.client('rds')
-        elbv2_client = session.client('elbv2')
-        cloudwatch_client = session.client('cloudwatch')
-        apigateway_client = session.client('apigateway')
-        s3_client = session.client('s3')
+            ecs_client = session.client('ecs')
+            dynamodb_client = session.client('dynamodb')
+            rds_client = session.client('rds')
+            elbv2_client = session.client('elbv2')
+            cloudwatch_client = session.client('cloudwatch')
+            apigateway_client = session.client('apigateway')
+            s3_client = session.client('s3')
 
-        ecs_data = fetch_ecs_data_concurrent(ecs_client, cloudwatch_client)
-        dynamodb_data = fetch_dynamodb_data(dynamodb_client)
-        rds_data = fetch_rds_data(rds_client, cloudwatch_client)
-        elbv2_data = fetch_load_balancers(elbv2_client)
-        api_data = fetch_api_gateway_data(apigateway_client)
-        s3_data = fetch_s3_buckets_info(s3_client)
+            ecs_data = fetch_ecs_data_concurrent(ecs_client, cloudwatch_client)
+            dynamodb_data = fetch_dynamodb_data(dynamodb_client)
+            rds_data = fetch_rds_data(rds_client, cloudwatch_client)
+            elbv2_data = fetch_load_balancers(elbv2_client)
+            api_data = fetch_api_gateway_data(apigateway_client)
+            s3_data = fetch_s3_buckets_info(s3_client)
 
-        ecs_table = dash_table.DataTable(
-            id='ecs-table',
-            columns=[{'name': i, 'id': i} for i in ecs_data.columns],
-            data=ecs_data.to_dict('records'),
-            filter_action='native',  # Permite filtragem
-            sort_action='native',  # Permite ordenação
-            style_cell={'textAlign': 'left', 'padding': '5px'},
-            style_data_conditional=[
-                {'if': {'column_id': 'Capacity Provider', 'filter_query': '{Capacity Provider} eq "FARGATE" || {Capacity Provider} eq "N/A"'},
-                 'backgroundColor': '#FFCCCC'}
-            ]
-        )
+            ecs_table = dash_table.DataTable(
+                id='ecs-table',
+                columns=[{'name': i, 'id': i} for i in ecs_data.columns],
+                data=ecs_data.to_dict('records'),
+                filter_action='native',  # Permite filtragem
+                sort_action='native',  # Permite ordenação
+                style_cell={'textAlign': 'left', 'padding': '5px'},
+                style_data_conditional=[
+                    {'if': {'column_id': 'Capacity Provider', 'filter_query': '{Capacity Provider} eq "FARGATE" || {Capacity Provider} eq "N/A"'},
+                     'backgroundColor': '#FFCCCC'}
+                ]
+            )
 
-        dynamodb_table = dash_table.DataTable(
-            id='dynamodb-table',
-            columns=[{'name': i, 'id': i} for i in dynamodb_data.columns],
-            data=dynamodb_data.to_dict('records'),
-            filter_action='native',
-            sort_action='native',
-            style_cell={'textAlign': 'left', 'padding': '5px'}
-        )
+            dynamodb_table = dash_table.DataTable(
+                id='dynamodb-table',
+                columns=[{'name': i, 'id': i} for i in dynamodb_data.columns],
+                data=dynamodb_data.to_dict('records'),
+                filter_action='native',
+                sort_action='native',
+                style_cell={'textAlign': 'left', 'padding': '5px'}
+            )
 
-        rds_table = dash_table.DataTable(
-            id='rds-table',
-            columns=[{'name': i, 'id': i} for i in rds_data.columns],
-            data=rds_data.to_dict('records'),
-            filter_action='native',
-            sort_action='native',
-            style_cell={'textAlign': 'left', 'padding': '5px'},
-            style_data_conditional=[
-                {'if': {'column_id': 'Size', 'filter_query': '{Size} contains "xlarge"'},
-                 'backgroundColor': '#FFCCCC'},
-                {'if': {'column_id': 'Multi AZ', 'filter_query': '{Multi AZ} eq "True"'},
-                 'backgroundColor': '#FFCCCC'},
-                {'if': {'column_id': 'Has Read Replica', 'filter_query': '{Has Read Replica} eq "True"'},
-                 'backgroundColor': '#FFCCCC'}
-            ]
-        )
+            rds_table = dash_table.DataTable(
+                id='rds-table',
+                columns=[{'name': i, 'id': i} for i in rds_data.columns],
+                data=rds_data.to_dict('records'),
+                filter_action='native',
+                sort_action='native',
+                style_cell={'textAlign': 'left', 'padding': '5px'},
+                style_data_conditional=[
+                    {'if': {'column_id': 'Size', 'filter_query': '{Size} contains "xlarge"'},
+                     'backgroundColor': '#FFCCCC'},
+                    {'if': {'column_id': 'Multi AZ', 'filter_query': '{Multi AZ} eq "True"'},
+                     'backgroundColor': '#FFCCCC'},
+                    {'if': {'column_id': 'Has Read Replica', 'filter_query': '{Has Read Replica} eq "True"'},
+                     'backgroundColor': '#FFCCCC'}
+                ]
+            )
 
-        load_balancer_table = dash_table.DataTable(
-            id='load-balancers-table',
-            columns=[{'name': i, 'id': i} for i in elbv2_data.columns],
-            data=elbv2_data.to_dict('records'),
-            filter_action='native',
-            sort_action='native',
-            style_cell={'textAlign': 'left', 'padding': '5px'},
-            style_data_conditional=[
-                {'if': {'column_id': 'Listeners', 'filter_query': '{Listeners} eq 0'},
-                'backgroundColor': '#FFCCCC'}
-            ]
-        )
+            load_balancer_table = dash_table.DataTable(
+                id='load-balancers-table',
+                columns=[{'name': i, 'id': i} for i in elbv2_data.columns],
+                data=elbv2_data.to_dict('records'),
+                filter_action='native',
+                sort_action='native',
+                style_cell={'textAlign': 'left', 'padding': '5px'},
+                style_data_conditional=[
+                    {'if': {'column_id': 'Listeners', 'filter_query': '{Listeners} eq 0'},
+                    'backgroundColor': '#FFCCCC'}
+                ]
+            )
 
-        api_gateway_table = dash_table.DataTable(
-            id='api-table',
-            columns=[{'name': i, 'id': i} for i in api_data.columns],
-            data=api_data.to_dict('records'),
-            filter_action='native',
-            sort_action='native',
-            style_cell={'textAlign': 'left', 'padding': '5px'},
-            style_data_conditional=[
-                {'if': {'column_id': 'Logging Level', 'filter_query': '{Logging Level} != "OFF"'},
-                'backgroundColor': '#FFCCCC'},
-                {'if': {'column_id': 'X-Ray Enabled', 'filter_query': '{X-Ray Enabled} eq True'},
-                'backgroundColor': '#FFCCCC'}
-            ]
-        )
+            api_gateway_table = dash_table.DataTable(
+                id='api-table',
+                columns=[{'name': i, 'id': i} for i in api_data.columns],
+                data=api_data.to_dict('records'),
+                filter_action='native',
+                sort_action='native',
+                style_cell={'textAlign': 'left', 'padding': '5px'},
+                style_data_conditional=[
+                    {'if': {'column_id': 'Logging Level', 'filter_query': '{Logging Level} != "OFF"'},
+                    'backgroundColor': '#FFCCCC'},
+                    {'if': {'column_id': 'X-Ray Enabled', 'filter_query': '{X-Ray Enabled} eq True'},
+                    'backgroundColor': '#FFCCCC'}
+                ]
+            )
 
-        s3_table = dash_table.DataTable(
-            id='s3-table',
-            columns=[{'name': i, 'id': i} for i in s3_data.columns],
-            data=s3_data.to_dict('records'),
-            filter_action='native',
-            sort_action='native',
-            style_cell={'textAlign': 'left', 'padding': '5px'}
-        )
+            s3_table = dash_table.DataTable(
+                id='s3-table',
+                columns=[{'name': i, 'id': i} for i in s3_data.columns],
+                data=s3_data.to_dict('records'),
+                filter_action='native',
+                sort_action='native',
+                style_cell={'textAlign': 'left', 'padding': '5px'}
+            )
 
-        ecs_label = f"ECS Services ({len(ecs_data)})"
-        dynamodb_label = f"DynamoDB Tables ({len(dynamodb_data)})"
-        rds_label = f"RDS Instances ({len(rds_data)})"
-        lb_label = f"Load Balancers ({len(elbv2_data)})"
-        api_label = f"API Gateway ({len(api_data)})"
-        s3_label = f"S3 Buckets({len(s3_data)})"
+            ecs_label = f"ECS Services ({len(ecs_data)})"
+            dynamodb_label = f"DynamoDB Tables ({len(dynamodb_data)})"
+            rds_label = f"RDS Instances ({len(rds_data)})"
+            lb_label = f"Load Balancers ({len(elbv2_data)})"
+            api_label = f"API Gateway ({len(api_data)})"
+            s3_label = f"S3 Buckets ({len(s3_data)})"
+            
+            return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, s3_table, account_id, ecs_label, dynamodb_label, rds_label, lb_label, api_label, s3_label, ""]
         
-        return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, s3_table, account_id, ecs_label, dynamodb_label, rds_label, lb_label, api_label, s3_label]
+        except boto3.exceptions.Boto3Error as e:
+            error_message = f"AWS Error: {str(e)}"
+            return [html.Div()]*6 + [""] + ["ECS Services", "DynamoDB Tables", "RDS Instances", "Load Balancers", "API Gateway", "S3 Buckets"] + [error_message]
 
     # Se não clicar ou não tiver credenciais, retorna divs vazias e sem ID da conta
-    return [html.Div()]*6 + [""] + ["ECS Services", "DynamoDB Tables", "RDS Instances", "Load Balancers", "API Gateway", "S3 Buckets"]
+    return [html.Div()]*6 + [""] + ["ECS Services", "DynamoDB Tables", "RDS Instances", "Load Balancers", "API Gateway", "S3 Buckets"] + [""]
 
 def fetch_ecs_data_concurrent(ecs_client, cloudwatch_client):
     data = []
