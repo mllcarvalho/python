@@ -386,7 +386,6 @@ def get_bucket_storage_class(s3_client, bucket_name):
     """Fetch the predominant storage class of the first 10 objects in a specified S3 bucket."""
     storage_classes = []
     try:
-        # Usar diretamente MaxKeys para limitar os resultados
         response = retry_throttled_call(s3_client.list_objects_v2, Bucket=bucket_name, MaxKeys=10)
         objects = response.get('Contents', [])
         
@@ -400,7 +399,6 @@ def get_bucket_storage_class(s3_client, bucket_name):
         print(f"Error retrieving objects from {bucket_name}: {e}")
         return {'Bucket Name': bucket_name, 'Predominant Storage Class': 'Error'}
 
-    # Contabilizar e encontrar a classe de armazenamento mais comum
     if storage_classes:
         storage_class_counts = Counter(storage_classes)
         predominant_class = storage_class_counts.most_common(1)[0][0]
@@ -410,15 +408,13 @@ def get_bucket_storage_class(s3_client, bucket_name):
     return {'Bucket Name': bucket_name, 'Predominant Storage Class': predominant_class}
 
 def fetch_s3_buckets_info(s3_client):
-    """ Retrieve storage class information for all S3 buckets using concurrency. """
     buckets = s3_client.list_buckets()['Buckets']
-
-    # Recuperar o nome de cada bucket
     bucket_names = [bucket['Name'] for bucket in buckets]
 
-    # Usar ThreadPoolExecutor para processar cada bucket em paralelo
-    with ThreadPoolExecutor(max_workers=10) as executor:  # Ajuste o número de workers conforme necessário
-        results = list(executor.map(lambda bucket_name: get_bucket_storage_class(s3_client, bucket_name), bucket_names))
+    results = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for batch in chunks(bucket_names, 10):  # Processar 10 buckets por vez
+            results.extend(executor.map(lambda bucket_name: get_bucket_storage_class(s3_client, bucket_name), batch))
 
     return pd.DataFrame(results)
 
@@ -431,11 +427,15 @@ def retry_throttled_call(func, **kwargs):
         except ClientError as e:
             if e.response['Error']['Code'] in ['Throttling', 'RequestLimitExceeded']:
                 time.sleep(delay)
-                delay *= 2  # Exponential backoff
+                delay *= 2
                 retries -= 1
             else:
                 raise e
     raise Exception(f"Max retries exceeded for {func.__name__}")
+
+def chunks(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 @app.callback(
     Output('download-dataframe-xlsx', 'data'),
