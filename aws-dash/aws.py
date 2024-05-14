@@ -7,7 +7,8 @@ import boto3
 import pandas as pd
 import datetime
 import io
-import signal
+import time
+from botocore.exceptions import ClientError
 
 # Increase the timeout limit for Flask/Dash
 import socket
@@ -352,9 +353,8 @@ def fetch_load_balancers(elbv2_client):
         for listener in listeners_response['Listeners']:
             target_groups_response = elbv2_client.describe_target_groups(LoadBalancerArn=lb['LoadBalancerArn'])
             for target_group in target_groups_response['TargetGroups']:
-                targets_response = elbv2_client.describe_target_health(TargetGroupArn=target_group['TargetGroupArn'])
-                if len(targets_response['TargetHealthDescriptions']) > 0:
-                    has_registered_targets = True
+                has_registered_targets = check_target_health(elbv2_client, target_group['TargetGroupArn'])
+                if has_registered_targets:
                     break
             if has_registered_targets:
                 break
@@ -366,6 +366,24 @@ def fetch_load_balancers(elbv2_client):
             'Listeners': listener_count,
             'Has Registered Targets': has_registered_targets
         }
+
+    def check_target_health(elbv2_client, target_group_arn):
+        retries = 5
+        delay = 1
+        while retries > 0:
+            try:
+                targets_response = elbv2_client.describe_target_health(TargetGroupArn=target_group_arn)
+                if len(targets_response['TargetHealthDescriptions']) > 0:
+                    return True
+                return False
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'Throttling':
+                    time.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                    retries -= 1
+                else:
+                    raise e
+        return False
 
     load_balancers = elbv2_client.describe_load_balancers()['LoadBalancers']
     
