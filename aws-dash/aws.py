@@ -2,6 +2,7 @@ from flask import Flask
 from dash import dash_table, html, dcc, Input, Output, callback, dash, ctx, State
 from flask_caching import Cache
 from concurrent.futures import ThreadPoolExecutor
+from collections import Counter
 import boto3
 import pandas as pd
 import datetime
@@ -61,7 +62,8 @@ app.layout = html.Div([
             dcc.Tab(label='DynamoDB Tables', children=[html.Div(id='dynamodb-dashboard')], id='tab-dynamodb'),
             dcc.Tab(label='RDS Instances', children=[html.Div(id='rds-dashboard')], id='tab-rds'),
             dcc.Tab(label='Load Balancers', children=[html.Div(id='load-balancer-dashboard')], id='tab-lb'),
-            dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')], id='tab-api')
+            dcc.Tab(label='API Gateway', children=[html.Div(id='api-gateway-dashboard')], id='tab-api'),
+            dcc.Tab(label='S3 Buckets', children=[html.Div(id='s3-dashboard')], id='tab-s3')
         ])
     )
 ])
@@ -72,12 +74,14 @@ app.layout = html.Div([
      Output('rds-dashboard', 'children'),
      Output('load-balancer-dashboard', 'children'),
      Output('api-gateway-dashboard', 'children'),
+     Output('s3-dashboard', 'children'),
      Output('account-id-display', 'value'),
      Output('tab-ecs', 'label'),
      Output('tab-dynamodb', 'label'),
      Output('tab-rds', 'label'),
      Output('tab-lb', 'label'),
-     Output('tab-api', 'label')],
+     Output('tab-api', 'label'),
+     Output('tab-s3', 'label')],
     Input('refresh-button', 'n_clicks'),
     State('aws-creds-input', 'value')
 )
@@ -101,12 +105,14 @@ def update_dashboards(n_clicks, creds_input):
         elbv2_client = session.client('elbv2')
         cloudwatch_client = session.client('cloudwatch')
         apigateway_client = session.client('apigateway')
+        s3_client = session.client('s3')
 
         ecs_data = fetch_ecs_data_concurrent(ecs_client, cloudwatch_client)
         dynamodb_data = fetch_dynamodb_data(dynamodb_client)
         rds_data = fetch_rds_data(rds_client, cloudwatch_client)
         elbv2_data = fetch_load_balancers(elbv2_client)
         api_data = fetch_api_gateway_data(apigateway_client)
+        s3_data = fetch_s3_buckets_info(s3_client)
 
         ecs_table = dash_table.DataTable(
             id='ecs-table',
@@ -175,16 +181,26 @@ def update_dashboards(n_clicks, creds_input):
             ]
         )
 
+        s3_table = dash_table.DataTable(
+            id='s3-table',
+            columns=[{'name': i, 'id': i} for i in s3_data.columns],
+            data=s3_data.to_dict('records'),
+            filter_action='native',
+            sort_action='native',
+            style_cell={'textAlign': 'left', 'padding': '5px'}
+        )
+
         ecs_label = f"ECS Services ({len(ecs_data)})"
         dynamodb_label = f"DynamoDB Tables ({len(dynamodb_data)})"
         rds_label = f"RDS Instances ({len(rds_data)})"
         lb_label = f"Load Balancers ({len(elbv2_data)})"
         api_label = f"API Gateway ({len(api_data)})"
+        s3_label = f"API Gateway ({len(s3_data)})"
         
-        return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, account_id, ecs_label, dynamodb_label, rds_label, lb_label, api_label]
+        return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, account_id, ecs_label, dynamodb_label, rds_label, lb_label, api_label, s3_label]
 
     # Se não clicar ou não tiver credenciais, retorna divs vazias e sem ID da conta
-    return [html.Div()]*5 + [""] + ["ECS Services", "DynamoDB Tables", "RDS Instances", "Load Balancers", "API Gateway"]
+    return [html.Div()]*5 + [""] + ["ECS Services", "DynamoDB Tables", "RDS Instances", "Load Balancers", "API Gateway", "S3 Buckets"]
 
 def fetch_ecs_data_concurrent(ecs_client, cloudwatch_client):
     data = []
@@ -353,5 +369,41 @@ def fetch_api_gateway_data(apigateway_client):
 
     return pd.DataFrame(api_details_flat)
 
+def get_bucket_storage_class(s3_client, bucket_name):
+    """Fetch the predominant storage class of the first 10 objects in a specified S3 bucket."""
+    storage_classes = []
+    try:
+        paginator = s3_client.get_paginator('list_objects_v2')
+        # Limitar a paginação para recuperar apenas os primeiros 10 objetos
+        for page in paginator.paginate(Bucket=bucket_name, PaginationConfig={'MaxItems': 10}):
+            if 'Contents' in page:
+                storage_classes.extend([obj.get('StorageClass', 'STANDARD') for obj in page['Contents']])
+
+            # Interromper após os primeiros 10 objetos
+            if len(storage_classes) >= 10:
+                break
+
+    except Exception as e:
+        print(f"Error retrieving objects from {bucket_name}: {e}")
+        return {'Bucket Name': bucket_name, 'Predominant Storage Class': 'Error'}
+
+    # Contabilizar e encontrar a classe de armazenamento mais comum
+    storage_class_counts = Counter(storage_classes)
+    predominant_class = storage_class_counts.most_common(1)[0][0] if storage_classes else 'No Objects/Undefined'
+    return {'Bucket Name': bucket_name, 'Predominant Storage Class': predominant_class}
+
+def fetch_s3_buckets_info(s3_client):
+    """ Retrieve storage class information for all S3 buckets using concurrency. """
+    buckets = s3_client.list_buckets()['Buckets']
+
+    # Recuperar o nome de cada bucket
+    bucket_names = [bucket['Name'] for bucket in buckets]
+
+    # Usar ThreadPoolExecutor para processar cada bucket em paralelo
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(lambda bucket_name: get_bucket_storage_class(s3_client, bucket_name), bucket_names))
+
+    return pd.DataFrame(results)
+
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(host='127.0.0.1', port=8050, debug=True)
