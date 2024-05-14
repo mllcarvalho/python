@@ -1,5 +1,5 @@
 # Usar uma imagem base oficial do Python
-FROM itau-ha4-docker.artifactory.prod.aws.cloud.ihf/itau-corp-ha4-container-goldenimagepython:v0.1.0-a42ad38
+FROM itau-ha4-docker.artifactory.prod.aws.cloud.ihf/itau-corp-itau-ha4-container-goldenimagepython:v0.1.0-a42ad38
 
 # Define o diretório de trabalho no contêiner
 WORKDIR /app
