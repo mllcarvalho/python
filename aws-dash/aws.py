@@ -454,7 +454,7 @@ def download_excel(n_clicks, ecs_data, dynamodb_data, rds_data, elbv2_data, api_
         s3_df.to_excel(writer, sheet_name='S3 Buckets', index=False)
 
         # Save the Excel file to the buffer
-        writer.save()
+        writer.close()
         output.seek(0)
 
         # Return the data to be downloaded
