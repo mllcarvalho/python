@@ -195,12 +195,12 @@ def update_dashboards(n_clicks, creds_input):
         rds_label = f"RDS Instances ({len(rds_data)})"
         lb_label = f"Load Balancers ({len(elbv2_data)})"
         api_label = f"API Gateway ({len(api_data)})"
-        s3_label = f"API Gateway ({len(s3_data)})"
+        s3_label = f"S3 Buckets({len(s3_data)})"
         
-        return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, account_id, ecs_label, dynamodb_label, rds_label, lb_label, api_label, s3_label]
+        return [ecs_table, dynamodb_table, rds_table, load_balancer_table, api_gateway_table, s3_table, account_id, ecs_label, dynamodb_label, rds_label, lb_label, api_label, s3_label]
 
     # Se não clicar ou não tiver credenciais, retorna divs vazias e sem ID da conta
-    return [html.Div()]*5 + [""] + ["ECS Services", "DynamoDB Tables", "RDS Instances", "Load Balancers", "API Gateway", "S3 Buckets"]
+    return [html.Div()]*6 + [""] + ["ECS Services", "DynamoDB Tables", "RDS Instances", "Load Balancers", "API Gateway", "S3 Buckets"]
 
 def fetch_ecs_data_concurrent(ecs_client, cloudwatch_client):
     data = []
