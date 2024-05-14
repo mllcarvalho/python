@@ -416,23 +416,23 @@ def fetch_s3_buckets_info(s3_client):
 @app.callback(
     Output('download-dataframe-xlsx', 'data'),
     Input('export-all', 'n_clicks'),
-    State('ecs-dashboard', 'children'),
-    State('dynamodb-dashboard', 'children'),
-    State('rds-dashboard', 'children'),
-    State('load-balancer-dashboard', 'children'),
-    State('api-gateway-dashboard', 'children'),
-    State('s3-dashboard', 'children'),
-    prevent_initial_call=True,
+    State('ecs-table', 'data'),
+    State('dynamodb-table', 'data'),
+    State('rds-table', 'data'),
+    State('load-balancers-table', 'data'),
+    State('api-table', 'data'),
+    State('s3-table', 'data'),
+    prevent_initial_call=True
 )
 def download_excel(n_clicks, ecs_data, dynamodb_data, rds_data, elbv2_data, api_data, s3_data):
     if n_clicks > 0:
         # Extract data from the dashboards
-        ecs_df = pd.DataFrame(ecs_data[0]['props']['data']) if ecs_data and len(ecs_data) > 0 and 'props' in ecs_data[0] else pd.DataFrame()
-        dynamodb_df = pd.DataFrame(dynamodb_data[0]['props']['data']) if dynamodb_data and len(dynamodb_data) > 0 and 'props' in dynamodb_data[0] else pd.DataFrame()
-        rds_df = pd.DataFrame(rds_data[0]['props']['data']) if rds_data and len(rds_data) > 0 and 'props' in rds_data[0] else pd.DataFrame()
-        elbv2_df = pd.DataFrame(elbv2_data[0]['props']['data']) if elbv2_data and len(elbv2_data) > 0 and 'props' in elbv2_data[0] else pd.DataFrame()
-        api_df = pd.DataFrame(api_data[0]['props']['data']) if api_data and len(api_data) > 0 and 'props' in api_data[0] else pd.DataFrame()
-        s3_df = pd.DataFrame(s3_data[0]['props']['data']) if s3_data and len(s3_data) > 0 and 'props' in s3_data[0] else pd.DataFrame()
+        ecs_df = pd.DataFrame(ecs_data) if ecs_data else pd.DataFrame()
+        dynamodb_df = pd.DataFrame(dynamodb_data) if dynamodb_data else pd.DataFrame()
+        rds_df = pd.DataFrame(rds_data) if rds_data else pd.DataFrame()
+        elbv2_df = pd.DataFrame(elbv2_data) if elbv2_data else pd.DataFrame()
+        api_df = pd.DataFrame(api_data) if api_data else pd.DataFrame()
+        s3_df = pd.DataFrame(s3_data) if s3_data else pd.DataFrame()
 
         # Create a BytesIO buffer to hold the Excel file
         output = io.BytesIO()
