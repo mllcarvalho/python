@@ -454,5 +454,7 @@ def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_dat
         output.seek(0)
         return dcc.send_bytes(output.getvalue(), 'aws_dashboard_data.xlsx')
 
+    return dcc.send_bytes(None)
+
 if __name__ == '__main__':
     app.run_server(host='127.0.0.1', port=8050, debug=True)
