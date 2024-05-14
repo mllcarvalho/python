@@ -7,6 +7,11 @@ import boto3
 import pandas as pd
 import datetime
 import io
+import signal
+
+# Increase the timeout limit for Flask/Dash
+import socket
+socket.setdefaulttimeout(300)  # 5 minutes
 
 server = Flask(__name__)
 app = dash.Dash(__name__, server=server, url_base_pathname='/')
