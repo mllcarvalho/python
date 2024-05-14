@@ -1,7 +1,7 @@
 from flask import Flask, Response, send_file
 from dash import dash_table, html, dcc, Input, Output, callback, dash, ctx, State
 from flask_caching import Cache
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
 import boto3
 import pandas as pd
@@ -339,21 +339,48 @@ def get_cpu_usage(cloudwatch_client, db_instance_identifier):
 
 def fetch_load_balancers(elbv2_client):
     def describe_load_balancer(lb):
-        listeners_response = elbv2_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])
-        listener_count = len(listeners_response['Listeners'])
+        lb_name = lb['LoadBalancerName']
+        lb_arn = lb['LoadBalancerArn']
+        lb_type = lb['Type']
+        
+        # Inicializar contagem de listeners e targets
+        listener_count = 0
+        registered_targets_count = 0
+
+        try:
+            listeners_response = retry_throttled_call(elbv2_client.describe_listeners, LoadBalancerArn=lb_arn)
+            listener_count = len(listeners_response['Listeners'])
+
+            for listener in listeners_response['Listeners']:
+                target_groups_response = retry_throttled_call(elbv2_client.describe_target_groups, LoadBalancerArn=lb_arn)
+                for target_group in target_groups_response['TargetGroups']:
+                    targets_response = retry_throttled_call(elbv2_client.describe_target_health, TargetGroupArn=target_group['TargetGroupArn'])
+                    registered_targets_count += len(targets_response['TargetHealthDescriptions'])
+
+        except ClientError as e:
+            if e.response['Error']['Code'] in ['Throttling', 'RequestLimitExceeded']:
+                time.sleep(2)
+                describe_load_balancer(lb)  # Retry
+            else:
+                print(f"Error describing load balancer {lb_name}: {e}")
+        
         return {
-            'Load Balancer Name': lb['LoadBalancerName'],
-            'Load Balancer ARN': lb['LoadBalancerArn'],
-            'Type': lb['Type'],
-            'Listeners': listener_count
+            'Load Balancer Name': lb_name,
+            'Load Balancer ARN': lb_arn,
+            'Type': lb_type,
+            'Listeners': listener_count,
+            'Registered Targets': registered_targets_count
         }
 
-    load_balancers = elbv2_client.describe_load_balancers()['LoadBalancers']
-    
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        lb_data = list(executor.map(describe_load_balancer, load_balancers))
+    load_balancers = retry_throttled_call(elbv2_client.describe_load_balancers)['LoadBalancers']
 
-    return pd.DataFrame(lb_data)
+    results = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(describe_load_balancer, lb) for lb in load_balancers]
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    return pd.DataFrame(results)
 
 # Definindo a função para recuperar dados dos API Gateways
 def fetch_api_gateway_data(apigateway_client):
