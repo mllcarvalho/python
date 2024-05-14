@@ -427,7 +427,7 @@ def fetch_s3_buckets_info(s3_client):
     bucket_names = [bucket['Name'] for bucket in buckets]
 
     # Usar ThreadPoolExecutor para processar cada bucket em paralelo
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=20) as executor:
         results = list(executor.map(lambda bucket_name: get_bucket_storage_class(s3_client, bucket_name), bucket_names))
 
     return pd.DataFrame(results)
