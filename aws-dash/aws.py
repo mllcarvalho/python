@@ -7,6 +7,8 @@ import boto3
 import pandas as pd
 import datetime
 import io
+import time
+from botocore.exceptions import ClientError
 
 server = Flask(__name__)
 app = dash.Dash(__name__, server=server, url_base_pathname='/')
@@ -385,7 +387,7 @@ def get_bucket_storage_class(s3_client, bucket_name):
     storage_classes = []
     try:
         # Usar diretamente MaxKeys para limitar os resultados
-        response = s3_client.list_objects_v2(Bucket=bucket_name, MaxKeys=10)
+        response = retry_throttled_call(s3_client.list_objects_v2, Bucket=bucket_name, MaxKeys=10)
         objects = response.get('Contents', [])
         
         for obj in objects:
@@ -415,10 +417,25 @@ def fetch_s3_buckets_info(s3_client):
     bucket_names = [bucket['Name'] for bucket in buckets]
 
     # Usar ThreadPoolExecutor para processar cada bucket em paralelo
-    with ThreadPoolExecutor(max_workers=20) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:  # Ajuste o número de workers conforme necessário
         results = list(executor.map(lambda bucket_name: get_bucket_storage_class(s3_client, bucket_name), bucket_names))
 
     return pd.DataFrame(results)
+
+def retry_throttled_call(func, **kwargs):
+    retries = 5
+    delay = 1
+    while retries > 0:
+        try:
+            return func(**kwargs)
+        except ClientError as e:
+            if e.response['Error']['Code'] in ['Throttling', 'RequestLimitExceeded']:
+                time.sleep(delay)
+                delay *= 2  # Exponential backoff
+                retries -= 1
+            else:
+                raise e
+    raise Exception(f"Max retries exceeded for {func.__name__}")
 
 @app.callback(
     Output('download-dataframe-xlsx', 'data'),
