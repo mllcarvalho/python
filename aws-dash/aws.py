@@ -429,7 +429,7 @@ def fetch_s3_buckets_info(s3_client):
     State('load-balancers-table', 'data'),
     State('api-table', 'data'),
     State('s3-table', 'data'),
-    State('account-id-display', 'value')
+    State('account-id-display', 'value'),
     prevent_initial_call=True
 )
 def download_excel(n_clicks, ecs_data, dynamodb_data, rds_data, elbv2_data, api_data, s3_data, account_id):
