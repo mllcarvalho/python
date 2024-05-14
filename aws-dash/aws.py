@@ -373,23 +373,27 @@ def get_bucket_storage_class(s3_client, bucket_name):
     """Fetch the predominant storage class of the first 10 objects in a specified S3 bucket."""
     storage_classes = []
     try:
-        paginator = s3_client.get_paginator('list_objects_v2')
-        # Limitar a paginação para recuperar apenas os primeiros 10 objetos
-        for page in paginator.paginate(Bucket=bucket_name, PaginationConfig={'MaxItems': 10}):
-            if 'Contents' in page:
-                storage_classes.extend([obj.get('StorageClass', 'STANDARD') for obj in page['Contents']])
+        # Usar diretamente MaxKeys para limitar os resultados
+        response = s3_client.list_objects_v2(Bucket=bucket_name, MaxKeys=10)
+        objects = response.get('Contents', [])
+        
+        for obj in objects:
+            storage_classes.append(obj.get('StorageClass', 'STANDARD'))
 
-            # Interromper após os primeiros 10 objetos
-            if len(storage_classes) >= 10:
-                break
-
+    except s3_client.exceptions.NoSuchBucket:
+        print(f"Bucket {bucket_name} does not exist.")
+        return {'Bucket Name': bucket_name, 'Predominant Storage Class': 'Error: Bucket does not exist'}
     except Exception as e:
         print(f"Error retrieving objects from {bucket_name}: {e}")
         return {'Bucket Name': bucket_name, 'Predominant Storage Class': 'Error'}
 
     # Contabilizar e encontrar a classe de armazenamento mais comum
-    storage_class_counts = Counter(storage_classes)
-    predominant_class = storage_class_counts.most_common(1)[0][0] if storage_classes else 'No Objects/Undefined'
+    if storage_classes:
+        storage_class_counts = Counter(storage_classes)
+        predominant_class = storage_class_counts.most_common(1)[0][0]
+    else:
+        predominant_class = 'No Objects/Undefined'
+
     return {'Bucket Name': bucket_name, 'Predominant Storage Class': predominant_class}
 
 def fetch_s3_buckets_info(s3_client):
