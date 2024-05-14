@@ -429,9 +429,10 @@ def fetch_s3_buckets_info(s3_client):
     State('load-balancers-table', 'data'),
     State('api-table', 'data'),
     State('s3-table', 'data'),
+    State('account-id-display', 'value')
     prevent_initial_call=True
 )
-def download_excel(n_clicks, ecs_data, dynamodb_data, rds_data, elbv2_data, api_data, s3_data):
+def download_excel(n_clicks, ecs_data, dynamodb_data, rds_data, elbv2_data, api_data, s3_data, account_id):
     if n_clicks > 0:
         # Extract data from the dashboards
         ecs_df = pd.DataFrame(ecs_data) if ecs_data else pd.DataFrame()
@@ -458,7 +459,7 @@ def download_excel(n_clicks, ecs_data, dynamodb_data, rds_data, elbv2_data, api_
         output.seek(0)
 
         # Return the data to be downloaded
-        return dcc.send_bytes(output.read(), filename='aws_dashboard_data.xlsx')
+        return dcc.send_bytes(output.read(), filename=f'aws_dashboard_{account_id}.xlsx')
 
 if __name__ == '__main__':
     app.run_server(host='127.0.0.1', port=8050, debug=True)
