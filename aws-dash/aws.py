@@ -425,15 +425,14 @@ def fetch_s3_buckets_info(s3_client):
 )
 def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_data, api_data, s3_data):
     if n_clicks > 0:
-        # Cria um buffer em memória para salvar o arquivo Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # Extrair dados e converter para DataFrame
+            # Extract data and convert to DataFrame
             def extract_data(data):
-                if data and 'props' in data and 'children' in data['props']:
-                    table_data = data['props']['children']
-                    if table_data and 'props' in table_data and 'data' in table_data['props']:
-                        return pd.DataFrame(table_data['props']['data'])
+                if data and isinstance(data, list) and len(data) > 0 and 'props' in data[0]:
+                    table_data = data[0]['props'].get('data', [])
+                    if table_data:
+                        return pd.DataFrame(table_data)
                 return pd.DataFrame()
 
             ecs_df = extract_data(ecs_data)
@@ -443,7 +442,7 @@ def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_dat
             api_df = extract_data(api_data)
             s3_df = extract_data(s3_data)
 
-            # Salvar cada DataFrame em uma planilha diferente
+            # Save each DataFrame to a separate sheet
             ecs_df.to_excel(writer, sheet_name='ECS Services', index=False)
             dynamodb_df.to_excel(writer, sheet_name='DynamoDB Tables', index=False)
             rds_df.to_excel(writer, sheet_name='RDS Instances', index=False)
@@ -452,27 +451,18 @@ def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_dat
             s3_df.to_excel(writer, sheet_name='S3 Buckets', index=False)
 
         output.seek(0)
-
-        # Salvar o arquivo em memória
-        file_name = 'aws_dashboard_data.xlsx'
-        return f'/download/{file_name}'
+        return f'/download/aws_dashboard_data.xlsx'
 
     return '#'
 
-# Configuração do download do arquivo
-@server.route('/download/<path:filename>')
-def download_file(filename):
+@server.route('/download/aws_dashboard_data.xlsx')
+def download_excel():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Substituir isso pelo armazenamento de dados real em memória
-        pd.DataFrame({'A': [1, 2, 3]}).to_excel(writer, sheet_name='Sheet1', index=False)
+        # Example DataFrames
+        pd.DataFrame({'Example': [1, 2, 3]}).to_excel(writer, sheet_name='Sheet1', index=False)
     output.seek(0)
-
-    return Response(
-        output,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, attachment_filename='aws_dashboard_data.xlsx')
 
 if __name__ == '__main__':
     app.run_server(host='127.0.0.1', port=8050, debug=True)
