@@ -344,14 +344,14 @@ def get_cpu_usage(cloudwatch_client, db_instance_identifier):
 def fetch_load_balancers(elbv2_client):
     def describe_load_balancer(lb):
         # Descrever listeners associados ao load balancer
-        listeners_response = elbv2_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])
+        listeners_response = retry_throttled_call(elbv2_client.describe_listeners, LoadBalancerArn=lb['LoadBalancerArn'])
         listener_count = len(listeners_response['Listeners'])
 
         # Flag para determinar se há registered targets
         has_registered_targets = False
 
         for listener in listeners_response['Listeners']:
-            target_groups_response = elbv2_client.describe_target_groups(LoadBalancerArn=lb['LoadBalancerArn'])
+            target_groups_response = retry_throttled_call(elbv2_client.describe_target_groups, LoadBalancerArn=lb['LoadBalancerArn'])
             for target_group in target_groups_response['TargetGroups']:
                 has_registered_targets = check_target_health(elbv2_client, target_group['TargetGroupArn'])
                 if has_registered_targets:
@@ -368,14 +368,15 @@ def fetch_load_balancers(elbv2_client):
         }
 
     def check_target_health(elbv2_client, target_group_arn):
+        targets_response = retry_throttled_call(elbv2_client.describe_target_health, TargetGroupArn=target_group_arn)
+        return len(targets_response['TargetHealthDescriptions']) > 0
+
+    def retry_throttled_call(func, **kwargs):
         retries = 5
         delay = 1
         while retries > 0:
             try:
-                targets_response = elbv2_client.describe_target_health(TargetGroupArn=target_group_arn)
-                if len(targets_response['TargetHealthDescriptions']) > 0:
-                    return True
-                return False
+                return func(**kwargs)
             except ClientError as e:
                 if e.response['Error']['Code'] == 'Throttling':
                     time.sleep(delay)
@@ -383,7 +384,7 @@ def fetch_load_balancers(elbv2_client):
                     retries -= 1
                 else:
                     raise e
-        return False
+        raise Exception(f"Max retries exceeded for {func.__name__}")
 
     load_balancers = elbv2_client.describe_load_balancers()['LoadBalancers']
     
