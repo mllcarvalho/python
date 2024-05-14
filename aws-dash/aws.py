@@ -1,4 +1,4 @@
-from flask import Flask, send_file
+from flask import Flask, Response, send_file
 from dash import dash_table, html, dcc, Input, Output, callback, dash, ctx, State
 from flask_caching import Cache
 from concurrent.futures import ThreadPoolExecutor
@@ -428,14 +428,20 @@ def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_dat
         # Cria um buffer em memória para salvar o arquivo Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # Adiciona cada dataframe a uma planilha separada
-            ecs_df = pd.DataFrame(ecs_data['props']['children'][0]['props']['data'])
-            dynamodb_df = pd.DataFrame(dynamodb_data['props']['children'][0]['props']['data'])
-            rds_df = pd.DataFrame(rds_data['props']['children'][0]['props']['data'])
-            lb_df = pd.DataFrame(lb_data['props']['children'][0]['props']['data'])
-            api_df = pd.DataFrame(api_data['props']['children'][0]['props']['data'])
-            s3_df = pd.DataFrame(s3_data['props']['children'][0]['props']['data'])
-            
+            # Extrair dados e converter para DataFrame
+            def extract_data(data):
+                if data and len(data) > 0 and 'props' in data[0]:
+                    return pd.DataFrame(data[0]['props']['data'])
+                return pd.DataFrame()
+
+            ecs_df = extract_data(ecs_data)
+            dynamodb_df = extract_data(dynamodb_data)
+            rds_df = extract_data(rds_data)
+            lb_df = extract_data(lb_data)
+            api_df = extract_data(api_data)
+            s3_df = extract_data(s3_data)
+
+            # Salvar cada DataFrame em uma planilha diferente
             ecs_df.to_excel(writer, sheet_name='ECS Services', index=False)
             dynamodb_df.to_excel(writer, sheet_name='DynamoDB Tables', index=False)
             rds_df.to_excel(writer, sheet_name='RDS Instances', index=False)
@@ -445,7 +451,7 @@ def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_dat
 
         output.seek(0)
 
-        # Salva o arquivo em memória
+        # Salvar o arquivo em memória
         file_name = 'aws_dashboard_data.xlsx'
         return f'/download/{file_name}'
 
@@ -454,7 +460,17 @@ def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_dat
 # Configuração do download do arquivo
 @server.route('/download/<path:filename>')
 def download_file(filename):
-    return send_file(io.BytesIO(), attachment_filename=filename, as_attachment=True, cache_timeout=0)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Substituir isso pelo armazenamento de dados real em memória
+        pd.DataFrame({'A': [1, 2, 3]}).to_excel(writer, sheet_name='Sheet1', index=False)
+    output.seek(0)
+
+    return Response(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 if __name__ == '__main__':
     app.run_server(host='127.0.0.1', port=8050, debug=True)
