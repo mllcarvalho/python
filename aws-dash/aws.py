@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, send_file
 from dash import dash_table, html, dcc, Input, Output, callback, dash, ctx, State
 from flask_caching import Cache
 from concurrent.futures import ThreadPoolExecutor
@@ -6,6 +6,7 @@ from collections import Counter
 import boto3
 import pandas as pd
 import datetime
+import io
 
 server = Flask(__name__)
 app = dash.Dash(__name__, server=server, url_base_pathname='/')
@@ -50,7 +51,9 @@ app.layout = html.Div([
 
         html.Div([
             html.Button('Clear Cache', id='clear-cache-button'),
-            html.Div(id='cache-status', style={'color': 'green', 'font-weight': 'bold', 'margin-top': '5px'})
+            html.Div(id='cache-status', style={'color': 'green', 'font-weight': 'bold', 'margin-top': '5px'}),
+            html.A('Download Excel File', id='download-link', download='', href='', target='_blank', style={'display': 'none'}),
+            html.Button('Export All to Excel', id='export-all', n_clicks=0, style={'margin-top': '5px'}),
         ], style={'width': '30%', 'display': 'inline-block', 'text-align': 'right', 'vertical-align': 'top'}),
     ], style={'width': '100%', 'display': 'block', 'margin-bottom': '10px'}),
 
@@ -369,6 +372,7 @@ def fetch_api_gateway_data(apigateway_client):
 
     return pd.DataFrame(api_details_flat)
 
+@cache.memoize(timeout=86400)  # Cache a função por um dia
 def get_bucket_storage_class(s3_client, bucket_name):
     """Fetch the predominant storage class of the first 10 objects in a specified S3 bucket."""
     storage_classes = []
@@ -408,6 +412,49 @@ def fetch_s3_buckets_info(s3_client):
         results = list(executor.map(lambda bucket_name: get_bucket_storage_class(s3_client, bucket_name), bucket_names))
 
     return pd.DataFrame(results)
+
+@app.callback(
+    Output('download-link', 'href'),
+    Input('export-all', 'n_clicks'),
+    State('ecs-dashboard', 'children'),
+    State('dynamodb-dashboard', 'children'),
+    State('rds-dashboard', 'children'),
+    State('load-balancer-dashboard', 'children'),
+    State('api-gateway-dashboard', 'children'),
+    State('s3-dashboard', 'children')
+)
+def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_data, api_data, s3_data):
+    if n_clicks > 0:
+        # Cria um buffer em memória para salvar o arquivo Excel
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Adiciona cada dataframe a uma planilha separada
+            ecs_df = pd.DataFrame(ecs_data['props']['children'][0]['props']['data'])
+            dynamodb_df = pd.DataFrame(dynamodb_data['props']['children'][0]['props']['data'])
+            rds_df = pd.DataFrame(rds_data['props']['children'][0]['props']['data'])
+            lb_df = pd.DataFrame(lb_data['props']['children'][0]['props']['data'])
+            api_df = pd.DataFrame(api_data['props']['children'][0]['props']['data'])
+            s3_df = pd.DataFrame(s3_data['props']['children'][0]['props']['data'])
+            
+            ecs_df.to_excel(writer, sheet_name='ECS Services', index=False)
+            dynamodb_df.to_excel(writer, sheet_name='DynamoDB Tables', index=False)
+            rds_df.to_excel(writer, sheet_name='RDS Instances', index=False)
+            lb_df.to_excel(writer, sheet_name='Load Balancers', index=False)
+            api_df.to_excel(writer, sheet_name='API Gateway', index=False)
+            s3_df.to_excel(writer, sheet_name='S3 Buckets', index=False)
+
+        output.seek(0)
+
+        # Salva o arquivo em memória
+        file_name = 'aws_dashboard_data.xlsx'
+        return f'/download/{file_name}'
+
+    return '#'
+
+# Configuração do download do arquivo
+@server.route('/download/<path:filename>')
+def download_file(filename):
+    return send_file(io.BytesIO(), attachment_filename=filename, as_attachment=True, cache_timeout=0)
 
 if __name__ == '__main__':
     app.run_server(host='127.0.0.1', port=8050, debug=True)
