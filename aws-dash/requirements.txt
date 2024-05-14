@@ -1,0 +1,9 @@
+flask
+dash
+pandas
+boto3
+flask-caching
+gunicorn
+dash-bootstrap-components
+XlsxWriter
+gevent
