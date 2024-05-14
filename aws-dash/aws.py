@@ -337,13 +337,25 @@ def get_cpu_usage(cloudwatch_client, db_instance_identifier):
 
 def fetch_load_balancers(elbv2_client):
     def describe_load_balancer(lb):
+        # Descrever listeners associados ao load balancer
         listeners_response = elbv2_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])
         listener_count = len(listeners_response['Listeners'])
+
+        # Contagem de registered targets
+        total_registered_targets = 0
+
+        for listener in listeners_response['Listeners']:
+            target_groups_response = elbv2_client.describe_target_groups(LoadBalancerArn=lb['LoadBalancerArn'])
+            for target_group in target_groups_response['TargetGroups']:
+                targets_response = elbv2_client.describe_target_health(TargetGroupArn=target_group['TargetGroupArn'])
+                total_registered_targets += len(targets_response['TargetHealthDescriptions'])
+
         return {
             'Load Balancer Name': lb['LoadBalancerName'],
             'Load Balancer ARN': lb['LoadBalancerArn'],
             'Type': lb['Type'],
-            'Listeners': listener_count
+            'Listeners': listener_count,
+            'Registered Targets': total_registered_targets
         }
 
     load_balancers = elbv2_client.describe_load_balancers()['LoadBalancers']
