@@ -430,8 +430,10 @@ def export_all_data_to_excel(n_clicks, ecs_data, dynamodb_data, rds_data, lb_dat
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             # Extrair dados e converter para DataFrame
             def extract_data(data):
-                if data and len(data) > 0 and 'props' in data[0]:
-                    return pd.DataFrame(data[0]['props']['data'])
+                if data and 'props' in data and 'children' in data['props']:
+                    table_data = data['props']['children']
+                    if table_data and 'props' in table_data and 'data' in table_data['props']:
+                        return pd.DataFrame(table_data['props']['data'])
                 return pd.DataFrame()
 
             ecs_df = extract_data(ecs_data)
